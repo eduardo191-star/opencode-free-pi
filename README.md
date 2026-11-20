@@ -1,10 +1,20 @@
-# opencode-free-pi
+# @eduardo191labs/opencode-free-pi
 
 Proveedor **free-pi** para [OpenCode](https://opencode.ai): modelos gratuitos
 financiados con anuncios, sin claves de API. Funciona en **Windows, Linux, macOS
 y Termux**.
 
-## Instalación rápida
+## Instalación desde npm
+
+```bash
+npm i -g @eduardo191labs/opencode-free-pi
+opencode plugin add @eduardo191labs/opencode-free-pi
+```
+
+El primer comando instala el paquete globalmente y el segundo lo registra en
+OpenCode para que lo cargue como plugin.
+
+## Instalación rápida con script
 
 > Pasa el cursor por el bloque de comandos y usa el icono de copiar de GitHub.
 > No necesitas definir variables de entorno para instalar.
@@ -94,14 +104,14 @@ El paquete incluye `dist/index.js` ya compilado y tipos TypeScript:
 
 ```bash
 npm pack
-npm install -g ./opencode-free-pi-0.2.0.tgz
+npm install -g ./eduardo191labs-opencode-free-pi-0.2.0.tgz
 ```
 
 También puedes declararlo en OpenCode como plugin npm:
 
 ```json
 {
-  "plugin": ["opencode-free-pi"]
+  "plugins": ["@eduardo191labs/opencode-free-pi"]
 }
 ```
 
