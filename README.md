@@ -27,6 +27,23 @@ también `opencode plugin --global @eduardo191labs/opencode-free-pi` (o
 Para una instalación local sin `-g`, fuerza el registro con
 `FREEPI_CONFIGURE=1 npm install`.
 
+### OpenCode 2
+
+OpenCode 2 usa la entrada `plugins` (plural) y carga el paquete desde su
+`exports`. Este paquete exporta las dos formas: el `server` de OpenCode 1.x y
+el `setup` de OpenCode 2, así que el mismo paquete funciona en ambos.
+
+```jsonc
+{
+  "plugins": ["@eduardo191labs/opencode-free-pi"],
+}
+```
+
+En OpenCode 2 el proveedor y las herramientas se registran igual. Las
+credenciales se leen de `FREEPI_JWT` o de
+`~/.free-pi/agent/credentials.json`; el flujo interactivo
+`opencode auth login -p free-pi` corresponde a OpenCode 1.x.
+
 ## Instalación rápida con script
 
 > Pasa el cursor por el bloque de comandos y usa el icono de copiar de GitHub.

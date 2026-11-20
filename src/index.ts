@@ -3682,4 +3682,228 @@ export const FreePiPlugin: Plugin = async ({ client }, options) => {
   };
 };
 
-export default { id: PROVIDER_ID, server: FreePiPlugin };
+function v2Models(providerID: string, models: ModelMap): any[] {
+  return Object.values(models).map((model: any) => {
+    const cost = model.cost ?? {};
+    const released = Date.parse(model.release_date ?? "");
+    return {
+      id: model.id,
+      modelID: model.id,
+      providerID,
+      name: model.name ?? model.id,
+      ...(model.family ? { family: model.family } : {}),
+      capabilities: {
+        tools: model.tool_call !== false,
+        input: model.modalities?.input ?? ["text"],
+        output: model.modalities?.output ?? ["text"],
+        ...(model.temperature === undefined
+          ? {}
+          : { temperature: model.temperature }),
+      },
+      variants: Object.entries(model.variants ?? {}).map(([id, settings]) => ({
+        id,
+        settings,
+      })),
+      time: { released: Number.isFinite(released) ? released : 0 },
+      cost: [
+        {
+          input: cost.input ?? 0,
+          output: cost.output ?? 0,
+          cache: {
+            read: cost.cache_read ?? cost.input ?? 0,
+            write: cost.cache_write ?? cost.input ?? 0,
+          },
+        },
+      ],
+      status: model.status === "deprecated" ? "deprecated" : "active",
+      enabled: true,
+      limit: {
+        context: model.limit?.context ?? CONTEXT_WINDOW,
+        output: model.limit?.output ?? MAX_OUTPUT_TOKENS,
+      },
+    };
+  });
+}
+
+function v2Provider(
+  providerID: string,
+  name: string,
+  models: ModelMap,
+  token: string | undefined,
+): any {
+  return {
+    info: {
+      id: providerID,
+      name,
+      activation: "enabled",
+      package: "@opencode/ai/providers/openai-compatible",
+      settings: {
+        baseURL: completionsBaseUrl(),
+        apiKey: token ?? "free-pi",
+      },
+    },
+    models: v2Models(providerID, models),
+  };
+}
+
+function v2Client(ctx: any): any {
+  const context = async (sessionID: string) => {
+    try {
+      return await ctx.session.context({ sessionID });
+    } catch {
+      return [];
+    }
+  };
+  return {
+    app: { log: async () => undefined },
+    auth: { set: async () => undefined },
+    tui: { showToast: async () => undefined },
+    session: {
+      messages: async ({ path }: any) => ({ data: await context(path.id) }),
+      message: async ({ path }: any) => {
+        const messages = await context(path.id);
+        return {
+          data: (messages as any[]).find(
+            (message) => (message?.info?.id ?? message?.id) === path.messageID,
+          ),
+        };
+      },
+    },
+  };
+}
+
+async function FreePiV2Setup(ctx: any): Promise<() => Promise<void>> {
+  const includeDefense = ctx.options?.includeDefense !== false;
+  const [catalog, registry] = await Promise.all([
+    fetchCatalog(),
+    fetchModelsRegistry(),
+  ]);
+  const { main, defense } = partitionModels(catalog);
+  const candidates = modelRegistryCandidates(registry);
+  const token = await readCredentialsToken();
+  const client = v2Client(ctx);
+  const hooks: any = await (FreePiPlugin as any)({ client }, ctx.options);
+  const registrations: any[] = [];
+
+  await ctx.provider.transform((editor: any) => {
+    editor.add(
+      v2Provider(PROVIDER_ID, "Free Pi", buildModels(main, candidates), token),
+    );
+    if (includeDefense && defense.length > 0) {
+      editor.add(
+        v2Provider(
+          DEFENSE_PROVIDER_ID,
+          "Free Pi Defense",
+          buildModels(defense, candidates),
+          token,
+        ),
+      );
+    }
+  });
+
+  await ctx.tool.transform((editor: any) => {
+    for (const [name, definition] of Object.entries<any>(hooks.tool ?? {})) {
+      const args =
+        definition.args && typeof definition.args === "object"
+          ? definition.args
+          : {};
+      const input = (tool.schema as any).toJSONSchema(tool.schema.object(args));
+      delete input.$schema;
+      editor.add({
+        name,
+        description: definition.description ?? name,
+        input,
+        execute: async (value: any, context: any) => {
+          const result = await definition.execute(value, {
+            sessionID: context.sessionID,
+            messageID: context.messageID,
+            agent: context.agent,
+            id: context.id,
+            directory: ctx.location?.directory ?? process.cwd(),
+            worktree: ctx.location?.directory ?? process.cwd(),
+            abort: context.signal,
+          });
+          return {
+            content: result?.output ?? result?.title ?? "",
+            metadata: result?.metadata,
+          };
+        },
+      });
+    }
+  });
+
+  const applyRequest = async (event: any) => {
+    const providerID = event.model?.providerID;
+    if (providerID !== PROVIDER_ID && providerID !== DEFENSE_PROVIDER_ID)
+      return;
+    const output: any = {
+      maxOutputTokens: event.options?.maxTokens,
+      headers: event.headers ?? {},
+    };
+    await hooks["chat.params"]?.(
+      { sessionID: event.sessionID, model: event.model },
+      output,
+    );
+    if (output.maxOutputTokens !== undefined) {
+      event.options = {
+        ...(event.options ?? {}),
+        maxTokens: output.maxOutputTokens,
+      };
+    }
+    if (
+      costExperimentArm === "efficiency" &&
+      !event.system?.some(
+        (part: any) => part.type === "text" && part.text === EFFICIENCY_RULE,
+      )
+    ) {
+      event.system?.push({ type: "text", text: EFFICIENCY_RULE });
+    }
+  };
+
+  for (const kind of ["context", "compaction", "generate", "title"]) {
+    registrations.push(await ctx.session.hook(kind, applyRequest));
+  }
+
+  registrations.push(
+    await ctx.session.hook("model.request", async (event: any) => {
+      const providerID = event.model?.providerID;
+      if (providerID !== PROVIDER_ID && providerID !== DEFENSE_PROVIDER_ID)
+        return;
+      event.headers ??= {};
+      const current = await resolveToken(client);
+      if (current) event.headers.authorization = `Bearer ${current}`;
+      event.headers["x-session-id"] = event.sessionID;
+      event.headers["x-client-version"] = latestClientVersion;
+      if (costExperimentArm)
+        event.headers[COST_EXPERIMENT_HEADER] = costExperimentArm;
+      const messages = Array.isArray(event.messages) ? event.messages : [];
+      const lastUser = [...messages]
+        .reverse()
+        .find(
+          (message: any) => (message?.info?.role ?? message?.role) === "user",
+        );
+      const messageID = lastUser?.info?.id ?? lastUser?.id;
+      const input = {
+        sessionID: event.sessionID,
+        model: event.model,
+        agent: event.agent,
+        message: messageID ? { id: messageID } : undefined,
+      };
+      const output = { headers: event.headers };
+      await hooks["chat.headers"]?.(input, output);
+    }),
+  );
+
+  return async () => {
+    for (const registration of registrations.reverse()) {
+      await registration.dispose?.().catch(() => undefined);
+    }
+    await hooks.dispose?.().catch(() => undefined);
+  };
+}
+
+export default {
+  id: PROVIDER_ID,
+  setup: FreePiV2Setup,
+  server: FreePiPlugin,
+};
