@@ -1,4 +1,4 @@
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -9,7 +9,9 @@ const source = join(packageRoot, "dist", "index.js");
 const isGlobal = process.env.npm_config_global === "true";
 
 if (!isGlobal && process.env.FREEPI_CONFIGURE !== "1") {
-  console.log("free-pi: instalación local; usa `npm i -g` o FREEPI_CONFIGURE=1 para registrar el plugin.");
+  console.log(
+    "free-pi: instalación local; usa `npm i -g` o FREEPI_CONFIGURE=1 para registrar el plugin.",
+  );
   process.exit(0);
 }
 
@@ -32,8 +34,31 @@ function display(file) {
   return file.replace(home, "~");
 }
 
+const configNames = ["opencode.json", "opencode.jsonc", "opencode.json5"];
+let configured = false;
+for (const name of configNames) {
+  const file = join(configDir, name);
+  if (!existsSync(file)) continue;
+  try {
+    const text = await readFile(file, "utf8");
+    configured = /@eduardo191labs\/opencode-free-pi/.test(text);
+  } catch {}
+  if (configured) break;
+}
+
+if (configured) {
+  await rm(target, { force: true });
+  console.log(
+    "free-pi: el paquete ya está configurado en OpenCode; se omitió el plugin local.",
+  );
+  console.log("free-pi: reinicia OpenCode y ejecuta `opencode plugin list`.");
+  process.exit(0);
+}
+
 await mkdir(pluginDir, { recursive: true });
 await copyFile(source, target);
 
 console.log(`free-pi: plugin instalado en ${display(target)}`);
-console.log("free-pi: reinicia OpenCode y ejecuta `opencode auth login -p free-pi`.");
+console.log(
+  "free-pi: reinicia OpenCode y ejecuta `opencode auth login -p free-pi`.",
+);

@@ -33,10 +33,26 @@ OpenCode 2 usa la entrada `plugins` (plural) y carga el paquete desde su
 `exports`. Este paquete exporta las dos formas: el `server` de OpenCode 1.x y
 el `setup` de OpenCode 2, así que el mismo paquete funciona en ambos.
 
-```jsonc
-{
-  "plugins": ["@eduardo191labs/opencode-free-pi"],
-}
+```bash
+opencode plugin add @eduardo191labs/opencode-free-pi@latest
+opencode plugin list
+```
+
+La lista debe mostrar `free-pi` como `active`, con la versión del paquete. Si
+aparece `failed`, ejecuta `opencode --print-logs` y revisa el `cause=` del log;
+el `ref=` solo no contiene el motivo.
+
+El `postinstall` antiguo copiaba `dist/index.js` a
+`~/.config/opencode/plugins/opencode-free-pi.ts`. Ese archivo local no tiene
+versión de paquete y puede quedar desactualizado; en OpenCode 2 bórralo para
+que no compita con el paquete:
+
+```powershell
+Remove-Item "$env:USERPROFILE\.config\opencode\plugins\opencode-free-pi.ts" -Force -ErrorAction SilentlyContinue
+```
+
+```bash
+rm -f ~/.config/opencode/plugins/opencode-free-pi.ts
 ```
 
 En OpenCode 2 el proveedor y las herramientas se registran igual. Las

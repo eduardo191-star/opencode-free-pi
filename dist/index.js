@@ -3136,11 +3136,17 @@ function v2Client(ctx) {
         },
     };
 }
+function settle(promise, fallback) {
+    return Promise.race([
+        promise,
+        new Promise((resolve) => setTimeout(() => resolve(fallback), 6000)),
+    ]);
+}
 async function FreePiV2Setup(ctx) {
     const includeDefense = ctx.options?.includeDefense !== false;
     const [catalog, registry] = await Promise.all([
-        fetchCatalog(),
-        fetchModelsRegistry(),
+        settle(fetchCatalog(), undefined),
+        settle(fetchModelsRegistry(), undefined),
     ]);
     const { main, defense } = partitionModels(catalog);
     const candidates = modelRegistryCandidates(registry);
@@ -3154,35 +3160,50 @@ async function FreePiV2Setup(ctx) {
             editor.add(v2Provider(DEFENSE_PROVIDER_ID, "Free Pi Defense", buildModels(defense, candidates), token));
         }
     });
-    await ctx.tool.transform((editor) => {
-        for (const [name, definition] of Object.entries(hooks.tool ?? {})) {
-            const args = definition.args && typeof definition.args === "object"
-                ? definition.args
-                : {};
-            const input = tool.schema.toJSONSchema(tool.schema.object(args));
-            delete input.$schema;
-            editor.add({
-                name,
-                description: definition.description ?? name,
-                input,
-                execute: async (value, context) => {
-                    const result = await definition.execute(value, {
-                        sessionID: context.sessionID,
-                        messageID: context.messageID,
-                        agent: context.agent,
-                        id: context.id,
-                        directory: ctx.location?.directory ?? process.cwd(),
-                        worktree: ctx.location?.directory ?? process.cwd(),
-                        abort: context.signal,
-                    });
-                    return {
-                        content: result?.output ?? result?.title ?? "",
-                        metadata: result?.metadata,
-                    };
-                },
-            });
-        }
-    });
+    try {
+        await ctx.tool.transform((editor) => {
+            for (const [name, definition] of Object.entries(hooks.tool ?? {})) {
+                const args = definition.args && typeof definition.args === "object"
+                    ? definition.args
+                    : {};
+                let input = {
+                    type: "object",
+                    properties: {},
+                    additionalProperties: true,
+                };
+                try {
+                    input = tool.schema.toJSONSchema(tool.schema.object(args));
+                    delete input.$schema;
+                }
+                catch (error) {
+                    console.error(`[free-pi] could not build the schema for ${name}; using a permissive schema`, error);
+                }
+                editor.add({
+                    name,
+                    description: definition.description ?? name,
+                    input,
+                    execute: async (value, context) => {
+                        const result = await definition.execute(value, {
+                            sessionID: context.sessionID,
+                            messageID: context.messageID,
+                            agent: context.agent,
+                            id: context.id,
+                            directory: ctx.location?.directory ?? process.cwd(),
+                            worktree: ctx.location?.directory ?? process.cwd(),
+                            abort: context.signal,
+                        });
+                        return {
+                            content: result?.output ?? result?.title ?? "",
+                            metadata: result?.metadata,
+                        };
+                    },
+                });
+            }
+        });
+    }
+    catch (error) {
+        console.error("[free-pi] could not register tools in OpenCode 2", error);
+    }
     const applyRequest = async (event) => {
         const providerID = event.model?.providerID;
         if (providerID !== PROVIDER_ID && providerID !== DEFENSE_PROVIDER_ID)
@@ -3204,34 +3225,44 @@ async function FreePiV2Setup(ctx) {
         }
     };
     for (const kind of ["context", "compaction", "generate", "title"]) {
-        registrations.push(await ctx.session.hook(kind, applyRequest));
+        try {
+            registrations.push(await ctx.session.hook(kind, applyRequest));
+        }
+        catch (error) {
+            console.error(`[free-pi] could not register the ${kind} hook`, error);
+        }
     }
-    registrations.push(await ctx.session.hook("model.request", async (event) => {
-        const providerID = event.model?.providerID;
-        if (providerID !== PROVIDER_ID && providerID !== DEFENSE_PROVIDER_ID)
-            return;
-        event.headers ??= {};
-        const current = await resolveToken(client);
-        if (current)
-            event.headers.authorization = `Bearer ${current}`;
-        event.headers["x-session-id"] = event.sessionID;
-        event.headers["x-client-version"] = latestClientVersion;
-        if (costExperimentArm)
-            event.headers[COST_EXPERIMENT_HEADER] = costExperimentArm;
-        const messages = Array.isArray(event.messages) ? event.messages : [];
-        const lastUser = [...messages]
-            .reverse()
-            .find((message) => (message?.info?.role ?? message?.role) === "user");
-        const messageID = lastUser?.info?.id ?? lastUser?.id;
-        const input = {
-            sessionID: event.sessionID,
-            model: event.model,
-            agent: event.agent,
-            message: messageID ? { id: messageID } : undefined,
-        };
-        const output = { headers: event.headers };
-        await hooks["chat.headers"]?.(input, output);
-    }));
+    try {
+        registrations.push(await ctx.session.hook("model.request", async (event) => {
+            const providerID = event.model?.providerID;
+            if (providerID !== PROVIDER_ID && providerID !== DEFENSE_PROVIDER_ID)
+                return;
+            event.headers ??= {};
+            const current = await resolveToken(client);
+            if (current)
+                event.headers.authorization = `Bearer ${current}`;
+            event.headers["x-session-id"] = event.sessionID;
+            event.headers["x-client-version"] = latestClientVersion;
+            if (costExperimentArm)
+                event.headers[COST_EXPERIMENT_HEADER] = costExperimentArm;
+            const messages = Array.isArray(event.messages) ? event.messages : [];
+            const lastUser = [...messages]
+                .reverse()
+                .find((message) => (message?.info?.role ?? message?.role) === "user");
+            const messageID = lastUser?.info?.id ?? lastUser?.id;
+            const input = {
+                sessionID: event.sessionID,
+                model: event.model,
+                agent: event.agent,
+                message: messageID ? { id: messageID } : undefined,
+            };
+            const output = { headers: event.headers };
+            await hooks["chat.headers"]?.(input, output);
+        }));
+    }
+    catch (error) {
+        console.error("[free-pi] could not register the request hook", error);
+    }
     return async () => {
         for (const registration of registrations.reverse()) {
             await registration.dispose?.().catch(() => undefined);
