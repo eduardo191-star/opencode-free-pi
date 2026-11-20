@@ -42,6 +42,15 @@ La lista debe mostrar `free-pi` como `active`, con la versión del paquete. Si
 aparece `failed`, ejecuta `opencode --print-logs` y revisa el `cause=` del log;
 el `ref=` solo no contiene el motivo.
 
+`opencode plugin add` acumula versiones exactas en `plugins`. Si antes
+instalaste otra versión, la entrada vieja queda como `failed` y no muestra
+`id` ni `version`. Elimínala y deja solo una:
+
+```bash
+opencode plugin remove @eduardo191labs/opencode-free-pi@0.2.3
+opencode plugin list
+```
+
 El `postinstall` antiguo copiaba `dist/index.js` a
 `~/.config/opencode/plugins/opencode-free-pi.ts`. Ese archivo local no tiene
 versión de paquete y puede quedar desactualizado; en OpenCode 2 bórralo para
