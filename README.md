@@ -11,8 +11,18 @@ npm i -g @eduardo191labs/opencode-free-pi
 opencode plugin add @eduardo191labs/opencode-free-pi
 ```
 
-El primer comando instala el paquete globalmente y el segundo lo registra en
-OpenCode para que lo cargue como plugin.
+El primer comando instala el paquete y sus dependencias. El segundo registra
+el plugin en OpenCode y es la forma recomendada, porque npm 12 bloquea los
+scripts de instalación por defecto.
+
+El `postinstall` del paquete copia el plugin a
+`~/.config/opencode/plugins/opencode-free-pi.ts` (en Windows,
+`%USERPROFILE%\.config\opencode\plugins\opencode-free-pi.ts`) para que
+OpenCode lo descubra automáticamente. Si tu npm bloquea scripts, ejecuta
+también `opencode plugin add @eduardo191labs/opencode-free-pi`.
+
+Para una instalación local sin `-g`, fuerza el registro con
+`FREEPI_CONFIGURE=1 npm install`.
 
 ## Instalación rápida con script
 
@@ -117,6 +127,18 @@ También puedes declararlo en OpenCode como plugin npm:
 
 La instalación recomendada sigue siendo el script, porque coloca el archivo en
 la carpeta de plugins y funciona sin publicación en npm.
+
+## Publicación automática
+
+Cada push a `main` ejecuta `.github/workflows/publish.yml`, comprueba la última
+versión en npm, sube un patch si ya existe, publica el paquete y crea el commit
+`chore(release): vX.Y.Z [skip ci]` con el tag `vX.Y.Z`.
+
+El workflow usa el secret `NPM_TOKEN` del repositorio. Para una prueba sin
+publicar, ejecuta el workflow manualmente con `publish = false`.
+
+Después de un push, haz `git pull` para recibir el commit de versión que crea el
+workflow.
 
 ## Desarrollo
 

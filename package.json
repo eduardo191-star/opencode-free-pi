@@ -14,6 +14,7 @@
   },
   "files": [
     "dist",
+    "scripts",
     "src",
     "install.sh",
     "install.ps1",
@@ -24,7 +25,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node test/smoke.mjs",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "keywords": [
     "opencode",
@@ -47,15 +49,14 @@
   "engines": {
     "node": ">=18"
   },
-  "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.0.0"
-  },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.19.0",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.19.0"
   }
 }
