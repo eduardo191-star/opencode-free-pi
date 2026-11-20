@@ -1,12 +1,13 @@
-name: Publish npm
+name: Release
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish to npm (false = only build and test)
+        description: Publish to npm and create a GitHub Release
         type: boolean
         default: true
 
@@ -14,15 +15,17 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-npm
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  release:
     if: ${{ !contains(github.event.head_commit.message || '', '[skip ci]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -30,11 +33,14 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm pack --dry-run
-      - name: Version and publish
-        if: github.event_name == 'push' || inputs.publish != false
+      - name: Check package contents
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+        run: npm pack --dry-run
+      - name: Publish and release
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -47,11 +53,12 @@ jobs:
           fi
 
           VERSION=$(node -p "require('./package.json').version")
+          TARBALL=$(npm pack --silent | tail -n1)
           echo "Publishing $NAME@$VERSION"
-          npm publish --access public
+          npm publish "$TARBALL" --access public
 
-          if ! git diff --quiet -- package.json package-lock.json dist; then
-            git add package.json package-lock.json dist
+          git add package.json package-lock.json dist
+          if ! git diff --cached --quiet; then
             git commit -m "chore(release): v$VERSION [skip ci]"
           fi
 
@@ -61,3 +68,9 @@ jobs:
 
           git push origin HEAD:main
           git push origin "v$VERSION"
+
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" "$TARBALL" --clobber
+          else
+            gh release create "v$VERSION" "$TARBALL" --title "v$VERSION" --generate-notes
+          fi
