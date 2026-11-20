@@ -3103,6 +3103,7 @@ function v2Provider(providerID, name, models, token) {
             id: providerID,
             name,
             activation: "enabled",
+            integrationID: PROVIDER_ID,
             package: "@opencode/ai/providers/openai-compatible",
             settings: {
                 baseURL: completionsBaseUrl(),
@@ -3111,6 +3112,31 @@ function v2Provider(providerID, name, models, token) {
         },
         models: v2Models(providerID, models),
     };
+}
+async function v2ConnectionAuth(ctx) {
+    try {
+        const connection = await ctx.integration.connection.active(PROVIDER_ID);
+        if (!connection)
+            return undefined;
+        const credential = await ctx.integration.connection.resolve(connection);
+        if (!credential)
+            return undefined;
+        if (credential.type === "oauth")
+            return {
+                type: "oauth",
+                refresh: credential.refresh,
+                access: credential.access,
+                expires: credential.expires,
+            };
+        if (credential.type === "key")
+            return {
+                type: "api",
+                key: credential.key,
+                metadata: credential.metadata,
+            };
+    }
+    catch { }
+    return undefined;
 }
 function v2Client(ctx) {
     const context = async (sessionID) => {
@@ -3150,10 +3176,82 @@ async function FreePiV2Setup(ctx) {
     ]);
     const { main, defense } = partitionModels(catalog);
     const candidates = modelRegistryCandidates(registry);
-    const token = await readCredentialsToken();
     const client = v2Client(ctx);
+    const connectionAuth = await v2ConnectionAuth(ctx);
+    let token = tokenFromAuth(connectionAuth) ?? (await readCredentialsToken());
+    authResolver = async () => (await v2ConnectionAuth(ctx)) ?? undefined;
     const hooks = await FreePiPlugin({ client }, ctx.options);
     const registrations = [];
+    const credentialsAbort = new AbortController();
+    void (async () => {
+        try {
+            for await (const _event of ctx.event.subscribe({
+                types: ["credential.updated", "credential.switched"],
+                signal: credentialsAbort.signal,
+            })) {
+                const next = tokenFromAuth(await v2ConnectionAuth(ctx)) ??
+                    (await readCredentialsToken());
+                if (next === token)
+                    continue;
+                token = next;
+                await ctx.provider.reload().catch(() => undefined);
+            }
+        }
+        catch { }
+    })();
+    try {
+        registrations.push(await ctx.integration.transform((editor) => {
+            editor.update(PROVIDER_ID, (integration) => {
+                integration.name = "Free Pi";
+            });
+            editor.method.update({
+                integrationID: PROVIDER_ID,
+                method: {
+                    id: "github",
+                    type: "oauth",
+                    label: "Sign in with GitHub (free-pi)",
+                },
+                authorize: async () => {
+                    const result = await authorizeFreePi(client);
+                    if (result.method !== "auto")
+                        throw new Error("free-pi sign-in did not start.");
+                    return {
+                        url: result.url,
+                        instructions: result.instructions,
+                        mode: "auto",
+                        callback: (async () => {
+                            const value = await result.callback();
+                            if (value.type !== "success")
+                                throw new Error("free-pi sign-in failed.");
+                            if ("key" in value)
+                                return {
+                                    type: "key",
+                                    key: value.key,
+                                    metadata: value.metadata,
+                                };
+                            return {
+                                type: "oauth",
+                                methodID: "github",
+                                refresh: value.refresh,
+                                access: value.access,
+                                expires: value.expires,
+                            };
+                        })(),
+                    };
+                },
+            });
+            editor.method.update({
+                integrationID: PROVIDER_ID,
+                method: {
+                    type: "key",
+                    label: "Paste a free-pi JWT",
+                },
+            });
+        }));
+    }
+    catch (error) {
+        console.error("[free-pi] could not register the OpenCode 2 integration", error);
+    }
     await ctx.provider.transform((editor) => {
         editor.add(v2Provider(PROVIDER_ID, "Free Pi", buildModels(main, candidates), token));
         if (includeDefense && defense.length > 0) {
@@ -3264,6 +3362,7 @@ async function FreePiV2Setup(ctx) {
         console.error("[free-pi] could not register the request hook", error);
     }
     return async () => {
+        credentialsAbort.abort();
         for (const registration of registrations.reverse()) {
             await registration.dispose?.().catch(() => undefined);
         }

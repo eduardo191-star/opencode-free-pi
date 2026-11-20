@@ -64,10 +64,16 @@ Remove-Item "$env:USERPROFILE\.config\opencode\plugins\opencode-free-pi.ts" -For
 rm -f ~/.config/opencode/plugins/opencode-free-pi.ts
 ```
 
-En OpenCode 2 el proveedor y las herramientas se registran igual. Las
-credenciales se leen de `FREEPI_JWT` o de
-`~/.free-pi/agent/credentials.json`; el flujo interactivo
-`opencode auth login -p free-pi` corresponde a OpenCode 1.x.
+En OpenCode 2 el proveedor y las herramientas se registran igual. El plugin
+también registra la integración `free-pi`, así que el inicio de sesión
+interactivo funciona en OpenCode 2:
+
+```bash
+opencode auth login free-pi
+```
+
+Puedes elegir GitHub o pegar un JWT. Las credenciales también se leen de
+`FREEPI_JWT` o de `~/.free-pi/agent/credentials.json`.
 
 ## Instalación rápida con script
 
@@ -105,6 +111,15 @@ pkg install curl
 ```
 
 ## Después de instalar
+
+OpenCode 2:
+
+```bash
+opencode auth login free-pi
+opencode
+```
+
+OpenCode 1.x:
 
 ```bash
 opencode auth login -p free-pi
