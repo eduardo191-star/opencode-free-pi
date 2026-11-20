@@ -15,6 +15,12 @@ y Termux**.
 curl.exe -fsSL "https://raw.githubusercontent.com/eduardo191-star/opencode-free-pi/main/install.ps1" | powershell -NoProfile -ExecutionPolicy Bypass -Command -
 ```
 
+Si tu terminal no acepta la tubería, descarga y ejecuta el `.ps1`:
+
+```powershell
+curl.exe -fsSL -o "$env:TEMP\install-free-pi.ps1" "https://raw.githubusercontent.com/eduardo191-star/opencode-free-pi/main/install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\install-free-pi.ps1"
+```
+
 Alternativa si `curl.exe` no está disponible:
 
 ```powershell
