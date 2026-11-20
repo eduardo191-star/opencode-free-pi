@@ -50,8 +50,8 @@ jobs:
           echo "Publishing $NAME@$VERSION"
           npm publish --access public
 
-          if ! git diff --quiet -- package.json package-lock.json; then
-            git add package.json package-lock.json
+          if ! git diff --quiet -- package.json package-lock.json dist; then
+            git add package.json package-lock.json dist
             git commit -m "chore(release): v$VERSION [skip ci]"
           fi
 
