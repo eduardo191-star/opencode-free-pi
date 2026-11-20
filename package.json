@@ -1,0 +1,58 @@
+{
+  "name": "opencode-free-pi",
+  "version": "0.2.0",
+  "description": "Ad-supported free-pi provider plugin for OpenCode on Windows, Linux, macOS and Termux",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "install.sh",
+    "install.ps1",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node test/smoke.mjs",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "free-pi",
+    "free-pi-cli",
+    "ai",
+    "provider"
+  ],
+  "author": "eduardo191-star",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eduardo191-star/opencode-free-pi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/eduardo191-star/opencode-free-pi/issues"
+  },
+  "homepage": "https://github.com/eduardo191-star/opencode-free-pi#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.19.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
