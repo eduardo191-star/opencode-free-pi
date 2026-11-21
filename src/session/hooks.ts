@@ -236,6 +236,14 @@ const TERMINAL_RETRY_PATTERN =
   /free usage limit|monthly usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing|subscription_sharing_usage_limit_exceeded/i;
 
 function isTerminalFailure(error: any): boolean {
+  if (
+    error?.type === "aborted" ||
+    /aborted|cancelled|canceled|interrupted|AbortError/i.test(
+      `${error?.message ?? ""}`,
+    )
+  ) {
+    return true;
+  }
   const parsed = parseFreePiError(error, true);
   if (parsed?.code && TERMINAL_RETRY_CODES.has(parsed.code)) return true;
   const body =

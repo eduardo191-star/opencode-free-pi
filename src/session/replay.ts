@@ -80,6 +80,7 @@ export async function replayConcurrentResponse(
   const original = event?.response;
   const request = event?.request;
   if (!(original instanceof Response) || !(request instanceof Request)) return;
+  if (request.signal.aborted) return;
   if (!(await isConcurrent(original))) return;
 
   const body =
@@ -97,6 +98,7 @@ export async function replayConcurrentResponse(
     wireSessionID(deps, event.sessionID);
 
   for (let attempt = 1; attempt <= REPLAY_MAX_ATTEMPTS; attempt++) {
+    if (request.signal.aborted) return;
     if (attempt > 1) await sleep(concurrentDelay(attempt));
     const next = rotateWireSessionID(deps, event.sessionID);
     if (previous && previous !== next) {

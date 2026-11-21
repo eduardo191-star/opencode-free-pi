@@ -66,6 +66,8 @@ export async function replayConcurrentResponse(deps, event) {
     const request = event?.request;
     if (!(original instanceof Response) || !(request instanceof Request))
         return;
+    if (request.signal.aborted)
+        return;
     if (!(await isConcurrent(original)))
         return;
     const body = deps.state.replayBodies.get(requestKey(event.sessionID, request)) ??
@@ -80,6 +82,8 @@ export async function replayConcurrentResponse(deps, event) {
     let previous = request.headers.get("x-session-id") ??
         wireSessionID(deps, event.sessionID);
     for (let attempt = 1; attempt <= REPLAY_MAX_ATTEMPTS; attempt++) {
+        if (request.signal.aborted)
+            return;
         if (attempt > 1)
             await sleep(concurrentDelay(attempt));
         const next = rotateWireSessionID(deps, event.sessionID);

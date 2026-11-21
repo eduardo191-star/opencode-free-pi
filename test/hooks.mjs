@@ -460,6 +460,17 @@ try {
   });
   assert.deepEqual(terminal.decision, { retry: false });
 
+  // An aborted turn is never retried: the user stopped it on purpose.
+  const aborted = await invoke("retry", "free-pi", {
+    sessionID: "ses_abort",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: { type: "aborted", message: "Aborted" },
+    attempt: 1,
+    decision: { retry: true, delay: 1_000 },
+  });
+  assert.deepEqual(aborted.decision, { retry: false });
+
   // A transient capacity 429 still uses pi's retry policy.
   const capacity = await invoke("retry", "free-pi", {
     sessionID: "ses_capacity",
