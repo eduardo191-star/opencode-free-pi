@@ -28,6 +28,10 @@ import {
 import { parseFreePiError } from "../errors/parse.js";
 import { trimMap } from "../utils/async.js";
 import { watchFreePiNotice } from "./notices.js";
+import {
+  rememberReplayBody,
+  replayConcurrentResponse,
+} from "./replay.js";
 import { localTitle } from "./title.js";
 import { rememberFreePiSession } from "./track.js";
 import { rotateWireSessionID, wireSessionID } from "./wire.js";
@@ -46,6 +50,7 @@ type SessionHookName =
   | "generate"
   | "title"
   | "model.request"
+  | "http.request"
   | "http.response"
   | "retry";
 type RequestKind = "primary" | "compaction" | "generate" | "title";
@@ -353,23 +358,36 @@ export async function registerSessionHooks(
   );
   await hookForProviders(
     ctx,
+    "http.request",
+    (event: any) => rememberReplayBody(deps, event),
+    registrations,
+  );
+  await hookForProviders(
+    ctx,
     "http.response",
     async (event: any) => {
+      // Recover a per-session `429 concurrent` before OpenCode sees it: the
+      // step's prepared request is reused on retry, so rotating the id in the
+      // retry hook is too late for the failed attempt.
+      const replayed = await replayConcurrentResponse(deps, event).catch(
+        () => undefined,
+      );
+      const response = replayed ?? event.response;
       // Context overflow has to be handled first: a 429 context ceiling must
       // become a 400 overflow, not a friendly long-lived limit.
-      const overflow = await rewriteContextOverflowResponse(
-        event.response,
-      ).catch(() => undefined);
+      const overflow = await rewriteContextOverflowResponse(response).catch(
+        () => undefined,
+      );
       if (overflow) {
         event.response = watchFreePiNotice(deps, overflow);
         return;
       }
-      const rewritten = await rewriteLimitResponse(event.response).catch(
+      const rewritten = await rewriteLimitResponse(response).catch(
         () => undefined,
       );
       event.response = watchFreePiNotice(
         deps,
-        rewritten ?? event.response,
+        rewritten ?? response,
       );
     },
     registrations,

@@ -84,14 +84,15 @@ const invoke = async (name, providerID, event) => {
 
 try {
   const registrations = await registerSessionHooks(ctx, deps);
-  // 7 session hooks for each provider, plus the two global tool hooks.
-  assert.equal(registrations.length, 16);
+  // 8 session hooks for each provider, plus the two global tool hooks.
+  assert.equal(registrations.length, 18);
   for (const name of [
     "context",
     "compaction",
     "generate",
     "title",
     "model.request",
+    "http.request",
     "http.response",
     "retry",
   ]) {
@@ -473,6 +474,73 @@ try {
     decision: { retry: true },
   });
   assert.deepEqual(capacity.decision, { retry: true, delay: 2_000 });
+
+  // OpenCode reuses the prepared request on retry, so a `concurrent` 429 is
+  // replayed here with a fresh wire session id and OpenCode only sees the 200.
+  const replayCalls = [];
+  const replayMock = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input instanceof URL ? input.href : input);
+    const headers = new Headers(init.headers ?? {});
+    const sid = headers.get("x-session-id");
+    replayCalls.push({ url, sid });
+    if (sid && sid.includes("-r")) {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        code: "concurrent",
+        message: "one request at a time, 5,351 credits left today",
+      }),
+      { status: 429, headers: { "content-type": "application/json" } },
+    );
+  };
+  const replayRequest = new Request(
+    "https://api.test/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-session-id": "ses_replay",
+        "x-turn-id": "turn-replay",
+      },
+      body: JSON.stringify({ model: "hy4-flash", messages: [] }),
+    },
+  );
+  const replayModel = { providerID: "free-pi", id: "hy4-flash" };
+  await invoke("http.request", "free-pi", {
+    sessionID: "ses_replay",
+    agent: "build",
+    kind: "primary",
+    model: replayModel,
+    request: replayRequest,
+  });
+  const replayed = await invoke("http.response", "free-pi", {
+    sessionID: "ses_replay",
+    agent: "build",
+    kind: "primary",
+    model: replayModel,
+    request: replayRequest,
+    response: new Response(
+      JSON.stringify({
+        code: "concurrent",
+        message: "one request at a time, 5,351 credits left today",
+      }),
+      { status: 429, headers: { "content-type": "application/json" } },
+    ),
+  });
+  assert.equal(replayed.response.status, 200);
+  assert.deepEqual(await replayed.response.json(), { ok: true });
+  assert.match(deps.state.wireSessions.get("ses_replay"), /^ses_replay-r/);
+  assert.ok(
+    replayCalls.some((call) => call.sid?.startsWith("ses_replay-r")),
+    JSON.stringify(replayCalls),
+  );
+  globalThis.fetch = replayMock;
+  await Promise.all([...deps.state.sessionClosePromises.values()]);
 
   // Cache misses are opt-in and need a real re-billed prompt.
   process.env.FREE_PI_CACHE_MISS_NOTICES = "1";

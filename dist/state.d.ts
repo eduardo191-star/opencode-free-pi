@@ -34,6 +34,7 @@ export type RuntimeState = {
     lastSessionResetAt: number;
     freePiSessions: Set<string>;
     wireSessions: Map<string, string>;
+    replayBodies: Map<string, string>;
     finalizedSessions: Set<string>;
     activeExecutions: Set<string>;
     sessionActivity: Map<string, number>;

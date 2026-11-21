@@ -105,9 +105,10 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - Recuperación automática del límite de sesiones concurrentes.
 - **Recuperación de `concurrent`**: free-pi admite una sola petición en vuelo por
   `x-session-id` y puede dejar el slot bloqueado en el servidor tras un stream
-  abortado. El plugin rota el `x-session-id` (y libera el anterior), reintenta
-  con espera exponencial hasta 6 intentos y evita el error «one request at a
-  time» en el turno.
+  abortado. El plugin repite la petición con un `x-session-id` nuevo desde el
+  hook de respuesta y entrega el resultado a OpenCode, así que el turno sigue sin
+  mostrar «one request at a time»; el reintento normal también rota el id como
+  respaldo.
 - **Catálogo y metadatos resistentes**: el catálogo de free-pi y el registro de
   models.dev se guardan en disco; si la red falla al arrancar se usan las copias
   locales en vez de quedarse sin modelos o sin límites de contexto. Los avisos
@@ -155,12 +156,14 @@ Los reintentos siguen la política de pi: como máximo 3 reintentos, con espera
 diarios u horarios, créditos, cuenta bloqueada) se convierten en un 400 con el
 mensaje amigable y no se reintentan, igual que hace el CLI de pi; así OpenCode no
 muestra un «Retrying…» que nunca termina. El 429 `concurrent` («one request at a
-time») es la excepción: como el servidor puede dejar el slot de una sesión
-bloqueado, el plugin cambia el `x-session-id` de esa sesión, libera el anterior y
-reintenta hasta 6 veces con esperas de 1s a 15s. Si el catálogo asigna el
-experimento `compact100`, el plugin baja la ventana a 117 647 tokens para que
-OpenCode compacte al llegar a 100k, que es el mismo umbral que consigue
-`reserveTokens: 100000` en el CLI.
+time») es la excepción: como OpenCode reutiliza la petición ya preparada al
+reintentar, el plugin **repite la petición** desde el hook de respuesta con un
+`x-session-id` nuevo y devuelve el resultado bueno a OpenCode; el turno continúa
+sin fallar ni mostrar reintentos. Además libera el id anterior, y si el replay no
+puede completarse el hook de reintento rota el id para los siguientes pasos. Si
+el catálogo asigna el experimento `compact100`, el plugin baja la ventana a 117
+647 tokens para que OpenCode compacte al llegar a 100k, que es el mismo umbral
+que consigue `reserveTokens: 100000` en el CLI.
 
 ## Rutas por plataforma
 

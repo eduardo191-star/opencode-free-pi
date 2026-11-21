@@ -8,6 +8,7 @@ import { rewriteContextOverflowResponse, rewriteLimitResponse, } from "../errors
 import { parseFreePiError } from "../errors/parse.js";
 import { trimMap } from "../utils/async.js";
 import { watchFreePiNotice } from "./notices.js";
+import { rememberReplayBody, replayConcurrentResponse, } from "./replay.js";
 import { localTitle } from "./title.js";
 import { rememberFreePiSession } from "./track.js";
 import { rotateWireSessionID, wireSessionID } from "./wire.js";
@@ -234,16 +235,22 @@ export async function registerSessionHooks(ctx, deps) {
     await hookForProviders(ctx, "generate", generation("generate"), registrations);
     await hookForProviders(ctx, "title", generation("title"), registrations);
     await hookForProviders(ctx, "model.request", (event) => applyModelRequest(deps, event), registrations);
+    await hookForProviders(ctx, "http.request", (event) => rememberReplayBody(deps, event), registrations);
     await hookForProviders(ctx, "http.response", async (event) => {
+        // Recover a per-session `429 concurrent` before OpenCode sees it: the
+        // step's prepared request is reused on retry, so rotating the id in the
+        // retry hook is too late for the failed attempt.
+        const replayed = await replayConcurrentResponse(deps, event).catch(() => undefined);
+        const response = replayed ?? event.response;
         // Context overflow has to be handled first: a 429 context ceiling must
         // become a 400 overflow, not a friendly long-lived limit.
-        const overflow = await rewriteContextOverflowResponse(event.response).catch(() => undefined);
+        const overflow = await rewriteContextOverflowResponse(response).catch(() => undefined);
         if (overflow) {
             event.response = watchFreePiNotice(deps, overflow);
             return;
         }
-        const rewritten = await rewriteLimitResponse(event.response).catch(() => undefined);
-        event.response = watchFreePiNotice(deps, rewritten ?? event.response);
+        const rewritten = await rewriteLimitResponse(response).catch(() => undefined);
+        event.response = watchFreePiNotice(deps, rewritten ?? response);
     }, registrations);
     await hookForProviders(ctx, "retry", (event) => applyRetryPolicy(deps, event), registrations);
     await registerToolHooks(ctx, deps, registrations);
