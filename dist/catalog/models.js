@@ -1,5 +1,5 @@
 /** Turns the free-pi catalog and models.dev registry into model definitions. */
-import { COMPACT100_CONTEXT_WINDOW, CONTEXT_WINDOW, DEFAULT_REASONING_EFFORT, DEFAULT_THINKING_LEVELS, MAX_OUTPUT_TOKENS, } from "../constants.js";
+import { COMPACT100_CONTEXT_WINDOW, CONTEXT_WINDOW, DEFAULT_THINKING_LEVELS, MAX_OUTPUT_TOKENS, } from "../constants.js";
 import { positiveNumber } from "../utils/numbers.js";
 import { cleanText } from "../utils/text.js";
 export function usableModels(catalog) {
@@ -151,6 +151,43 @@ export function modelVariants(options, _outputLimit) {
     }
     return variants;
 }
+export function accountAccess(me) {
+    if (!me)
+        return undefined;
+    const credits = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
+    const wallet = credits(me.bonus_wallet_credits) +
+        credits(me.regular_wallet_credits) +
+        credits(me.bonus_credits);
+    const remaining = credits(me.remaining_credits_today);
+    return {
+        premiumCredits: credits(me.premium_credits) +
+            credits(me.premium_bought_credits) +
+            credits(me.premium_gifted_credits),
+        walletCredits: wallet,
+        remainingCredits: remaining,
+        hasAllowance: remaining > 0 || credits(me.remaining_usd_today) > 0,
+    };
+}
+function isPremiumModel(model) {
+    if (model.tier === "premium")
+        return true;
+    return /premium\s+credits/i.test(model.note ?? "");
+}
+export function filterAccessibleModels(models, access) {
+    // Without a quota snapshot, show everything instead of guessing and hiding
+    // models the account may be able to use.
+    if (!access)
+        return models.filter((model) => model.unavailable !== true);
+    return models.filter((model) => {
+        if (model.unavailable === true)
+            return false;
+        if (isPremiumModel(model))
+            return access.premiumCredits > 0;
+        if (model.free === true)
+            return true;
+        return access.hasAllowance || access.walletCredits > 0;
+    });
+}
 export function buildModels(models, candidates = [], options = {}) {
     const result = {};
     for (const model of models) {
@@ -180,9 +217,6 @@ export function buildModels(models, candidates = [], options = {}) {
             reasoning,
             reasoning_options: reasoningOptions,
             variants: reasoning ? modelVariants(reasoningOptions, limitOutput) : {},
-            ...(reasoning
-                ? { settings: { reasoningEffort: DEFAULT_REASONING_EFFORT } }
-                : {}),
             enabled: model.unavailable !== true,
             temperature: model.temperature ?? capability?.temperature ?? true,
             tool_call: model.tool_call ?? capability?.tool_call ?? true,

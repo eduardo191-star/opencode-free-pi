@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 
 const { buildModels, modelVariants } = await import("../dist/catalog/models.js");
+const { accountAccess, filterAccessibleModels } = await import(
+  "../dist/catalog/models.js"
+);
 const { toV2Models } = await import("../dist/catalog/v2.js");
 const { CONTEXT_WINDOW, MAX_OUTPUT_TOKENS, CREDITS_PER_USD } = await import(
   "../dist/constants.js"
@@ -51,8 +54,9 @@ assert.deepEqual(free.variants, {
   low: { reasoningEffort: "low" },
   high: { reasoningEffort: "high" },
 });
-// Every reasoning model starts with thinking off, like free-pi's CLI.
-assert.deepEqual(free.settings, { reasoningEffort: "none" });
+// No forced default effort: sending `reasoningEffort: "none"` made every model
+// skip thinking entirely, which the CLI never does.
+assert.equal(free.settings, undefined);
 assert.equal(free.enabled, true);
 
 // free-pi bills in credits, not per-token USD, so every model reports zero
@@ -162,7 +166,7 @@ assert.equal(v2.capabilities.tools, false);
 assert.deepEqual(v2.capabilities.input, ["text"]);
 assert.deepEqual(v2.capabilities.output, ["text"]);
 assert.equal(v2.capabilities.temperature, false);
-assert.deepEqual(v2.settings, { reasoningEffort: "none" });
+assert.equal(v2.settings, undefined);
 assert.deepEqual(v2.variants, [
   { id: "low", settings: { reasoningEffort: "low" } },
   { id: "high", settings: { reasoningEffort: "high" } },
@@ -194,5 +198,36 @@ assert.deepEqual(compact.limit, {
   context: 117_647,
   output: MAX_OUTPUT_TOKENS,
 });
+
+// Only models the signed-in account can actually use are registered.
+const catalogModels = [
+  { id: "free-unlimited", free: true },
+  { id: "allowance", free: false },
+  { id: "premium", free: false, note: "premium credits" },
+  { id: "gone", free: false, unavailable: true },
+];
+const broke = accountAccess({ remaining_credits_today: 0, credit_usd: 0 });
+assert.deepEqual(
+  filterAccessibleModels(catalogModels, broke).map((model) => model.id),
+  ["free-unlimited"],
+);
+const allowance = accountAccess({ remaining_credits_today: 120 });
+assert.deepEqual(
+  filterAccessibleModels(catalogModels, allowance).map((model) => model.id),
+  ["free-unlimited", "allowance"],
+);
+const premiumOnly = accountAccess({
+  remaining_credits_today: 120,
+  premium_bought_credits: 50,
+});
+assert.deepEqual(
+  filterAccessibleModels(catalogModels, premiumOnly).map((model) => model.id),
+  ["free-unlimited", "allowance", "premium"],
+);
+// With no quota snapshot we keep everything rather than hide usable models.
+assert.deepEqual(
+  filterAccessibleModels(catalogModels, undefined).map((model) => model.id),
+  ["free-unlimited", "allowance", "premium"],
+);
 
 console.log("ok");

@@ -89,10 +89,18 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - **Subagentes identificados**: las sesiones hijas envían
   `x-freepi-subagent: 1`, igual que los proveedores que el CLI crea para sus
   subagentes.
-- **Pensamiento como el CLI**: todos los modelos razonan y empiezan en `off`;
-  el selector ofrece `minimal`, `low`, `medium` y `high` mediante
-  `reasoning_effort`, igual que `pi-ai`. No se anuncian `thinking_budget` ni
-  `thinking`, porque la ruta `openai-compatible` de OpenCode los descarta.
+- **Pensamiento sin forzar**: el plugin no envía un `reasoning_effort` por
+  defecto. Forzar `none` (como hacía una versión anterior) apagaba el
+  razonamiento y los modelos respondían con prisa; dejarlo sin definir usa el
+  nivel del servidor. El selector sigue ofreciendo `minimal`, `low`, `medium` y
+  `high` mediante `reasoning_effort`, igual que `pi-ai`. No se anuncian
+  `thinking_budget` ni `thinking`, porque la ruta `openai-compatible` de
+  OpenCode los descarta.
+- **Solo modelos utilizables**: al arrancar se consulta `/me` y el selector
+  `/model` incluye únicamente lo que la cuenta puede usar: los modelos
+  `free: true` siempre, los de pago mientras queden créditos de la cuota o
+  monedero, y los premium solo si hay créditos premium. Los modelos ausentes o
+  marcados `unavailable` no se registran.
 - **Sin cache warming**: el plugin desactiva los keep-alives de OpenCode para
   free-pi. El CLI nunca los hace y cada ping gastaría créditos y anuncios.
 - **Timeouts del CLI**: 5 minutos para las cabeceras y para cada trozo de la

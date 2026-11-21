@@ -3,13 +3,13 @@
 import {
   COMPACT100_CONTEXT_WINDOW,
   CONTEXT_WINDOW,
-  DEFAULT_REASONING_EFFORT,
   DEFAULT_THINKING_LEVELS,
   MAX_OUTPUT_TOKENS,
 } from "../constants.js";
 import type {
   Catalog,
   CatalogModel,
+  MeResponse,
   ModelDefinition,
   ModelRegistry,
   ModelsDevModel,
@@ -207,6 +207,61 @@ export type BuildModelsOptions = {
   compact100?: boolean;
 };
 
+/**
+ * What the signed-in account can actually use, derived from `GET /me`.
+ *
+ * free-pi lets the free allowance pay for every non-premium model while the
+ * daily credits last, so those stay available even when the wallet is empty.
+ * Premium-only models need premium credits, and showing them to an account
+ * without any only produces `model_requires_credits` failures from `/model`.
+ */
+export type AccountAccess = {
+  readonly premiumCredits: number;
+  readonly walletCredits: number;
+  readonly remainingCredits: number;
+  readonly hasAllowance: boolean;
+};
+
+export function accountAccess(me: MeResponse | undefined): AccountAccess | undefined {
+  if (!me) return undefined;
+  const credits = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const wallet =
+    credits(me.bonus_wallet_credits) +
+    credits(me.regular_wallet_credits) +
+    credits(me.bonus_credits);
+  const remaining = credits(me.remaining_credits_today);
+  return {
+    premiumCredits:
+      credits(me.premium_credits) +
+      credits(me.premium_bought_credits) +
+      credits(me.premium_gifted_credits),
+    walletCredits: wallet,
+    remainingCredits: remaining,
+    hasAllowance: remaining > 0 || credits(me.remaining_usd_today) > 0,
+  };
+}
+
+function isPremiumModel(model: CatalogModel): boolean {
+  if (model.tier === "premium") return true;
+  return /premium\s+credits/i.test(model.note ?? "");
+}
+
+export function filterAccessibleModels(
+  models: CatalogModel[],
+  access: AccountAccess | undefined,
+): CatalogModel[] {
+  // Without a quota snapshot, show everything instead of guessing and hiding
+  // models the account may be able to use.
+  if (!access) return models.filter((model) => model.unavailable !== true);
+  return models.filter((model) => {
+    if (model.unavailable === true) return false;
+    if (isPremiumModel(model)) return access.premiumCredits > 0;
+    if (model.free === true) return true;
+    return access.hasAllowance || access.walletCredits > 0;
+  });
+}
+
 export function buildModels(
   models: CatalogModel[],
   candidates: RegistryCandidate[] = [],
@@ -258,9 +313,6 @@ export function buildModels(
       reasoning,
       reasoning_options: reasoningOptions,
       variants: reasoning ? modelVariants(reasoningOptions, limitOutput) : {},
-      ...(reasoning
-        ? { settings: { reasoningEffort: DEFAULT_REASONING_EFFORT } }
-        : {}),
       enabled: model.unavailable !== true,
       temperature: model.temperature ?? capability?.temperature ?? true,
       tool_call: model.tool_call ?? capability?.tool_call ?? true,

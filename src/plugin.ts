@@ -10,12 +10,15 @@ import {
   installFreePiAgents,
   openCodeConfigDir,
 } from "./agents/definitions.js";
+import { fetchQuota } from "./api/quota.js";
 import { closeFreePiSession } from "./api/session.js";
 import { readCredentialsToken } from "./auth/credentials.js";
 import { tokenFromCredential } from "./auth/credential.js";
 import { fetchCatalog } from "./catalog/catalog.js";
 import {
+  accountAccess,
   buildModels,
+  filterAccessibleModels,
   modelRegistryCandidates,
   partitionModels,
 } from "./catalog/models.js";
@@ -108,14 +111,23 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
     log.warn("Could not register the free-pi skill", error);
   }
 
-  const [catalogResult, registryResult] = await Promise.all([
+  const [catalogResult, registryResult, quotaResult] = await Promise.all([
     settle(fetchCatalog(deps), undefined),
     settle(fetchModelsRegistry(deps), undefined),
+    settle(fetchQuota(deps), undefined),
   ]);
   // The fetch may finish just after `settle` gives up; reuse whatever landed.
   const catalog = catalogResult ?? state.cachedCatalog;
   const registry = registryResult ?? state.cachedRegistry;
-  const { main, defense } = partitionModels(catalog);
+  const quota = quotaResult ?? state.quotaCache;
+  // The picker must only offer models this account can actually use: premium
+  // models need premium credits, and paid models need allowance or wallet.
+  // Without a quota snapshot every model stays visible.
+  const access = accountAccess(quota?.me);
+  const { main: catalogMain, defense: catalogDefense } =
+    partitionModels(catalog);
+  const main = filterAccessibleModels(catalogMain, access);
+  const defense = filterAccessibleModels(catalogDefense, access);
   const candidates = modelRegistryCandidates(registry);
   const buildOptions = { compact100: state.costExperimentArm === "compact100" };
   const mainModels = buildModels(main, candidates, buildOptions);
