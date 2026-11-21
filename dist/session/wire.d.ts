@@ -6,9 +6,20 @@
  * request on the same id then fails with `429 concurrent` forever: resets do
  * not clear it. Rotating the wire id is the recovery, so the plugin keeps the
  * mapping until the OpenCode session is gone.
+ *
+ * The mapping is also stored in plugin storage, which is how an OpenCode
+ * session reopened after a restart reconnects to the same provider session
+ * instead of starting a new one. If that old id turns out to be locked, the
+ * existing replay path rotates it on the first `429 concurrent`.
  */
 import type { Deps } from "../deps.js";
 export declare function wireSessionID(deps: Deps, sessionID: string): string;
+/**
+ * Loads the provider session id saved for this OpenCode session, if any. The
+ * first request of a process calls this before deciding whether to rotate, so a
+ * resumed session can keep using its provider-side session.
+ */
+export declare function hydrateWireSessionID(deps: Deps, sessionID: string): Promise<void>;
 /**
  * Records that a turn ended without a clean stream (aborted, interrupted or
  * failed mid-flight). The server can keep the per-session request slot locked

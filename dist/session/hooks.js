@@ -11,10 +11,9 @@ import { watchFreePiNotice } from "./notices.js";
 import { rememberReplayBody, replayConcurrentResponse, } from "./replay.js";
 import { localTitle } from "./title.js";
 import { rememberFreePiSession } from "./track.js";
-import { markWireSessionDirty, rotateWireSessionID, takeWireSessionDirty, wireSessionID, } from "./wire.js";
+import { hydrateWireSessionID, markWireSessionDirty, rotateWireSessionID, takeWireSessionDirty, wireSessionID, } from "./wire.js";
 import { isFreePiSession, recordCompaction, recordToolEnd, recordToolStart, toolHeaders, } from "./tools.js";
 import { rememberTrackedModel } from "./usage.js";
-import { FUSION_GUIDELINE, FUSION_ID } from "../tools/fusion.js";
 const PENDING_LIMIT = 400;
 /** Each agent gets its own ad turn, so a subagent never reuses the parent's. */
 function pendingKeyOf(sessionID, agent, kind) {
@@ -59,16 +58,6 @@ async function applyGeneration(deps, event, kind) {
             event.system = system;
         }
     }
-    // The virtual Fusion model routes its turns to the executor; the guideline
-    // lives here so it is sent with the resolved provider request, not with the
-    // model picker's name.
-    if (kind === "primary" && deps.state.fusionSessions.has(event.sessionID)) {
-        const system = Array.isArray(event.system) ? event.system : [];
-        if (!system.some((part) => part?.type === "text" && part.text === FUSION_GUIDELINE)) {
-            system.push({ type: "text", text: FUSION_GUIDELINE });
-            event.system = system;
-        }
-    }
     const agent = event.agent;
     const turn = await resolveAdTurn(deps, {
         sessionID: event.sessionID,
@@ -89,10 +78,12 @@ async function applyModelRequest(deps, event) {
     rememberTrackedModel(deps, event.sessionID, providerID, event.model?.id ?? "");
     const agent = event.agent ?? (event.kind === "title" ? "title" : undefined);
     event.headers ??= {};
-    // A previous turn that was aborted, interrupted or failed mid-stream may have
+    // Reconnect to the provider session saved for this OpenCode session. A
+    // previous turn that was aborted, interrupted or failed mid-stream may have
     // left its per-session request slot locked on the server. Rotating before the
     // request goes out keeps this turn running instead of surfacing a 429 and a
     // retry: the session simply continues under a fresh wire id.
+    await hydrateWireSessionID(deps, event.sessionID);
     if (takeWireSessionDirty(deps, event.sessionID)) {
         const previous = wireSessionID(deps, event.sessionID);
         const next = rotateWireSessionID(deps, event.sessionID);
@@ -297,25 +288,9 @@ async function hookForProviders(ctx, name, callback, registrations) {
         }));
     }
 }
-export async function registerSessionHooks(ctx, deps, options = {}) {
+export async function registerSessionHooks(ctx, deps) {
     const registrations = [];
     const generation = (kind) => (event) => applyGeneration(deps, event, kind);
-    if (options.fusionExecutorID) {
-        await hookForProviders(ctx, "experimental.model.resolve", (event) => {
-            if (event.model?.providerID !== PROVIDER_ID)
-                return;
-            if (event.model?.id !== FUSION_ID) {
-                deps.state.fusionSessions.delete(event.sessionID);
-                return;
-            }
-            deps.state.fusionSessions.add(event.sessionID);
-            // The picker says Fusion; the wire request uses the executor model.
-            event.model = {
-                ...event.model,
-                id: options.fusionExecutorID,
-            };
-        }, registrations);
-    }
     await hookForProviders(ctx, "context", generation("primary"), registrations);
     await hookForProviders(ctx, "compaction", generation("compaction"), registrations);
     await hookForProviders(ctx, "generate", generation("generate"), registrations);

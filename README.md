@@ -152,16 +152,13 @@ El plugin registra las mismas herramientas de servidor que el CLI. Todas
 comprueban que la sesión sea de free-pi antes de gastar cuota; en cualquier otro
 proveedor responden que no están disponibles.
 
-| Herramienta             | Qué hace                                                                 |
-| ----------------------- | ------------------------------------------------------------------------ |
-| `look_at_image`         | Pregunta a un modelo de visión por una imagen del proyecto.              |
-| `generate_image`        | Genera una imagen desde un prompt y la guarda en `images/`.              |
-| `web_search`            | Busca en la web y devuelve título, URL, fecha y texto de cada resultado. |
-| `docs_lookup`           | Consulta documentación actual de una librería o framework.               |
-| `free_pi_usage`         | Muestra cuota restante, créditos, tokens y tier de la cuenta.            |
-| `free_pi_buy_credits`   | Abre la página de compra de créditos y muestra la URL.                   |
-| `free_pi_docs`          | Devuelve la guía integrada de free-pi sin hacer red.                     |
-| `fusion_plan`           | Fusion: pide al modelo planificador un plan antes de editar archivos.    |
+| Herramienta      | Qué hace                                                                 |
+| ---------------- | ------------------------------------------------------------------------ |
+| `look_at_image`  | Pregunta a un modelo de visión por una imagen del proyecto.              |
+| `generate_image` | Genera una imagen desde un prompt y la guarda en `images/`.              |
+| `web_search`     | Busca en la web y devuelve título, URL, fecha y texto de cada resultado. |
+| `docs_lookup`    | Consulta documentación actual de una librería o framework.               |
+| `free_pi_usage`  | Muestra cuota restante, créditos, tokens y tier de la cuenta.            |
 
 `generate_image` acepta `prompt`, `aspect_ratio` (`1:1`, `16:9`, `9:16`, `4:3`,
 `3:2`) y un `name` opcional para el archivo. Rechaza tipos que no sean PNG,
@@ -180,31 +177,55 @@ con su hora de recarga en ET, los créditos premium o de referidos y los tokens
 de hoy y de por vida. Si el servidor asigna el carril lento, incluye el aviso
 del CLI.
 
-`free_pi_buy_credits` consulta `/me` y abre `buy_url` en el navegador cuando
-hay uno; en SSH o sesiones headless solo imprime la URL.
+La compra de créditos y la guía de free-pi ya no se exponen como herramientas:
+se resuelven en el dashboard y la documentación de free-pi, sin gastar cuota ni
+añadir ruido al contexto.
 
-### Fusion
+## Agentes y subagentes
 
-Cuando el catálogo incluye `deepseek-v4-flash`, el plugin añade el modelo
-virtual **🧬 Fusion** al selector. Fusion usa Flash para construir y pide el
-plan a `deepseek-v4-pro` cuando la cuenta tiene créditos premium (o a Flash como
-respaldo), igual que el CLI:
+El CLI incluye cuatro personalidades de subagente. El plugin las instala como
+agentes Markdown nativos de OpenCode en el directorio global de configuración:
 
-1. El ejecutor explora el proyecto con herramientas de solo lectura.
-2. Llama a `fusion_plan` con lo que encontró y lo que hace falta.
-3. El plugin pide el plan al planificador mediante la generación sin estado
-   del SDK V2 y devuelve el texto al ejecutor.
-4. El ejecutor registra el plan con el gestor de todos nativo y lo implementa.
+```text
+~/.config/opencode/agents/free-pi/
+├── scout.md      → free-pi/scout
+├── planner.md    → free-pi/planner
+├── worker.md     → free-pi/worker
+└── reviewer.md   → free-pi/reviewer
+```
 
-La guía de Fusion se inyecta en el system prompt solo para las sesiones que
-eligieron ese modelo, y el modelo virtual se resuelve al ejecutor antes de
-enviar la petición. Si la generación sin estado no está disponible, la
-herramienta responde con instrucciones para que el propio ejecutor escriba el
-plan, sin bloquear el turno.
+| Agente            | Uso                                                              |
+| ----------------- | ---------------------------------------------------------------- |
+| `free-pi/scout`   | Reconocimiento de solo lectura; devuelve hallazgos estructurados. |
+| `free-pi/planner` | Plan de implementación de solo lectura, listo para un worker.     |
+| `free-pi/worker`  | Ejecuta una tarea completa en su propia ventana de contexto.      |
+| `free-pi/reviewer`| Revisión de solo lectura con archivo y línea.                     |
+
+Se lanzan con la herramienta `subagent` nativa de OpenCode, aparecen en el
+selector de agentes y heredan el modelo free-pi de la sesión padre. Los
+subagentes corren en segundo plano, comparten el allowance diario y envían su
+informe al agente principal. Así se conservan las sesiones hijas, los permisos,
+la profundidad de subagentes y el resto del comportamiento nativo.
+
+El plugin solo reescribe estos archivos si conservan su marca de gestión; si el
+usuario edita o reemplaza uno, se respeta tal cual.
+
+## Skill y contexto
+
+El plugin registra una skill `free-pi` mediante la API nativa de skills, con la
+lista de herramientas, los subagentes y las reglas de allowance. OpenCode la
+anuncia cuando es relevante y el agente la carga con su herramienta `skill`.
+
+La memoria, las sesiones y el contexto son los de OpenCode: `AGENTS.md` y los
+archivos de `instructions` se cargan de forma nativa, las sesiones persisten y
+se reanudan, y la compactación pliega conversaciones largas en un resumen. El
+plugin no crea archivos de memoria propios ni duplica el almacén de sesiones;
+los hechos duraderos del proyecto van en `AGENTS.md`.
 
 Las herramientas `todo` y `ask_user` del CLI no se duplican: OpenCode ya tiene
 un gestor de todos nativo y su propia herramienta de preguntas al usuario, con
-mejor integración en la TUI.
+mejor integración en la TUI. Los servidores MCP, comandos, referencias y
+permisos también siguen siendo los de OpenCode; free-pi no los reemplaza.
 
 ## Cabeceras enviadas
 

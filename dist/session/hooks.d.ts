@@ -4,7 +4,5 @@ import type { Deps } from "../deps.js";
 type Registration = {
     dispose: () => Promise<void>;
 };
-export declare function registerSessionHooks(ctx: Plugin.Context, deps: Deps, options?: {
-    readonly fusionExecutorID?: string;
-}): Promise<Registration[]>;
+export declare function registerSessionHooks(ctx: Plugin.Context, deps: Deps): Promise<Registration[]>;
 export {};

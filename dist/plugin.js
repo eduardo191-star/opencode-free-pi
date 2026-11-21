@@ -1,5 +1,7 @@
 /** OpenCode V2 plugin entry point for free-pi. */
 import { Plugin } from "@opencode/plugin";
+import { join } from "node:path";
+import { FREE_PI_SKILL, FREE_PI_SKILL_DESCRIPTION, FREE_PI_SKILL_ID, FREE_PI_SKILL_NAME, installFreePiAgents, openCodeConfigDir, } from "./agents/definitions.js";
 import { closeFreePiSession } from "./api/session.js";
 import { readCredentialsToken } from "./auth/credentials.js";
 import { tokenFromCredential } from "./auth/credential.js";
@@ -14,8 +16,6 @@ import { subscribeEvents } from "./session/events.js";
 import { registerSessionHooks } from "./session/hooks.js";
 import { cancelAllFinalizeTimers } from "./session/track.js";
 import { createRuntimeState } from "./state.js";
-import { registerAccountTools } from "./tools/account.js";
-import { addFusionModel, FUSION_PLANNER_ID, premiumPlannerAvailable, registerFusionTool, resolveFusionIds, } from "./tools/fusion.js";
 import { registerGenerateImageTool } from "./tools/image-generate.js";
 import { registerUsageTool } from "./tools/usage.js";
 import { registerVisionTool } from "./tools/vision.js";
@@ -50,7 +50,41 @@ async function setup(ctx) {
                 return [];
             }
         },
+        storage: ctx.storage,
     };
+    // OpenCode owns agents and skills. The plugin only installs the CLI's
+    // subagent personalities as native Markdown agents and registers one skill,
+    // so the picker, the subagent tool, permissions and reloads stay native.
+    const nativeRegistrations = [];
+    try {
+        const agents = await installFreePiAgents();
+        if (agents.changed) {
+            await ctx.agent.reload();
+            log.info(`Installed ${agents.installed.length} native free-pi subagent(s)`, agents.installed);
+        }
+        if (agents.skipped.length > 0) {
+            log.warn("Left user-owned free-pi agent files untouched", agents.skipped);
+        }
+    }
+    catch (error) {
+        log.warn("Could not install the free-pi subagents", error);
+    }
+    try {
+        nativeRegistrations.push(await ctx.skill.transform((editor) => {
+            if (editor.get(FREE_PI_SKILL_ID))
+                return;
+            editor.add({
+                id: FREE_PI_SKILL_ID,
+                name: FREE_PI_SKILL_NAME,
+                description: FREE_PI_SKILL_DESCRIPTION,
+                path: join(openCodeConfigDir(), "skills", "free-pi", "SKILL.md"),
+                content: FREE_PI_SKILL,
+            });
+        }));
+    }
+    catch (error) {
+        log.warn("Could not register the free-pi skill", error);
+    }
     const [catalogResult, registryResult] = await Promise.all([
         settle(fetchCatalog(deps), undefined),
         settle(fetchModelsRegistry(deps), undefined),
@@ -63,15 +97,6 @@ async function setup(ctx) {
     const buildOptions = { compact100: state.costExperimentArm === "compact100" };
     const mainModels = buildModels(main, candidates, buildOptions);
     const defenseModels = buildModels(defense, candidates, buildOptions);
-    const fusionIds = resolveFusionIds(Object.keys(mainModels), catalog?.default_model, {
-        server: catalog?.fusion,
-        hasPremium: !catalog?.fusion && mainModels[FUSION_PLANNER_ID]
-            ? await premiumPlannerAvailable(deps)
-            : undefined,
-    });
-    if (fusionIds && addFusionModel(mainModels, fusionIds)) {
-        log.info("Registered the Fusion model", fusionIds);
-    }
     for (const [id, model] of Object.entries(mainModels)) {
         state.outputLimits.set(`${PROVIDER_ID}/${id}`, model.limit.output);
     }
@@ -98,22 +123,14 @@ async function setup(ctx) {
         if (preferred)
             editor.default.set(PROVIDER_ID, preferred);
     });
-    const registrations = await registerSessionHooks(ctx, deps, {
-        fusionExecutorID: fusionIds?.executor,
-    });
+    const registrations = await registerSessionHooks(ctx, deps);
+    registrations.push(...nativeRegistrations);
     const tools = [
         { name: "look_at_image", register: () => registerVisionTool(ctx, deps) },
         { name: "free_pi_usage", register: () => registerUsageTool(ctx, deps) },
-        { name: "account", register: () => registerAccountTools(ctx, deps) },
         { name: "web", register: () => registerWebTools(ctx, deps) },
         { name: "generate_image", register: () => registerGenerateImageTool(ctx, deps) },
     ];
-    if (fusionIds) {
-        tools.push({
-            name: "fusion",
-            register: () => registerFusionTool(ctx, deps, fusionIds),
-        });
-    }
     for (const tool of tools) {
         try {
             registrations.push(await tool.register());

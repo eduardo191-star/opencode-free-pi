@@ -50,8 +50,8 @@ export type RuntimeState = {
   lastSessionResetAt: number;
 
   freePiSessions: Set<string>;
-  fusionSessions: Set<string>;
   wireSessions: Map<string, string>;
+  wireHydrated: Set<string>;
   replayBodies: Map<string, string>;
   dirtySessions: Set<string>;
   finalizedSessions: Set<string>;
@@ -81,8 +81,8 @@ export function createRuntimeState(): RuntimeState {
     sessionClosePromises: new Map(),
     lastSessionResetAt: 0,
     freePiSessions: new Set(),
-    fusionSessions: new Set(),
     wireSessions: new Map(),
+    wireHydrated: new Set(),
     replayBodies: new Map(),
     dirtySessions: new Set(),
     finalizedSessions: new Set(),

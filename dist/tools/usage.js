@@ -76,7 +76,6 @@ export function formatUsage(stats) {
             : []),
         `today tokens: ${t.prompt_tokens_today ?? 0} prompt / ${t.completion_tokens_today ?? 0} completion`,
         `lifetime: ${t.lifetime?.prompt_tokens ?? 0} prompt / ${t.lifetime?.completion_tokens ?? 0} completion tokens`,
-        ...(tiered ? [] : ["buy more credits: free_pi_buy_credits"]),
         ...(t.guest
             ? [
                 "guest trial: sign in with GitHub for up to 15,000 free credits a day",

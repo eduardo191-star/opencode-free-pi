@@ -33,8 +33,8 @@ export type RuntimeState = {
     sessionResetPromise?: Promise<SessionResetOutcome>;
     lastSessionResetAt: number;
     freePiSessions: Set<string>;
-    fusionSessions: Set<string>;
     wireSessions: Map<string, string>;
+    wireHydrated: Set<string>;
     replayBodies: Map<string, string>;
     dirtySessions: Set<string>;
     finalizedSessions: Set<string>;

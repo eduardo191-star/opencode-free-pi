@@ -6,11 +6,57 @@
  * request on the same id then fails with `429 concurrent` forever: resets do
  * not clear it. Rotating the wire id is the recovery, so the plugin keeps the
  * mapping until the OpenCode session is gone.
+ *
+ * The mapping is also stored in plugin storage, which is how an OpenCode
+ * session reopened after a restart reconnects to the same provider session
+ * instead of starting a new one. If that old id turns out to be locked, the
+ * existing replay path rotates it on the first `429 concurrent`.
  */
 import { trimSet } from "../utils/async.js";
 const DIRTY_LIMIT = 256;
+const HYDRATED_LIMIT = 1024;
+const STORAGE_PREFIX = "wire-session/";
+function storageKey(sessionID) {
+    return `${STORAGE_PREFIX}${sessionID}`;
+}
 export function wireSessionID(deps, sessionID) {
     return deps.state.wireSessions.get(sessionID) ?? sessionID;
+}
+/**
+ * Loads the provider session id saved for this OpenCode session, if any. The
+ * first request of a process calls this before deciding whether to rotate, so a
+ * resumed session can keep using its provider-side session.
+ */
+export async function hydrateWireSessionID(deps, sessionID) {
+    if (!sessionID)
+        return;
+    if (deps.state.wireSessions.has(sessionID))
+        return;
+    if (deps.state.wireHydrated.has(sessionID))
+        return;
+    deps.state.wireHydrated.add(sessionID);
+    trimSet(deps.state.wireHydrated, HYDRATED_LIMIT);
+    if (!deps.storage)
+        return;
+    const stored = await deps.storage
+        .get(storageKey(sessionID))
+        .catch(() => undefined);
+    if (typeof stored === "string" &&
+        stored.length > 0 &&
+        stored.length <= 200 &&
+        !deps.state.wireSessions.has(sessionID)) {
+        deps.state.wireSessions.set(sessionID, stored);
+    }
+}
+function persistWireSessionID(deps, sessionID, wireID) {
+    if (!deps.storage)
+        return;
+    void deps.storage
+        .set(storageKey(sessionID), wireID)
+        .catch((error) => deps.log.warn("Could not persist the free-pi provider session", {
+        sessionID,
+        error: String(error?.message ?? error),
+    }));
 }
 /**
  * Records that a turn ended without a clean stream (aborted, interrupted or
@@ -33,9 +79,17 @@ export function rotateWireSessionID(deps, sessionID) {
     const suffix = Math.random().toString(36).slice(2, 10);
     const next = `${sessionID}-r${suffix}`;
     deps.state.wireSessions.set(sessionID, next);
+    deps.state.wireHydrated.add(sessionID);
+    persistWireSessionID(deps, sessionID, next);
     return next;
 }
 export function forgetWireSessionID(deps, sessionID) {
     deps.state.wireSessions.delete(sessionID);
+    deps.state.wireHydrated.delete(sessionID);
     deps.state.dirtySessions.delete(sessionID);
+    if (deps.storage) {
+        void deps.storage
+            .remove(storageKey(sessionID))
+            .catch(() => undefined);
+    }
 }

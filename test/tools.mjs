@@ -14,17 +14,11 @@ const { createRuntimeState } = await import("../dist/state.js");
 const { formatUsage, registerUsageTool } = await import(
   "../dist/tools/usage.js"
 );
-const { FREE_PI_DOCS, registerAccountTools } = await import(
-  "../dist/tools/account.js"
-);
 const { formatWebResults, registerWebTools } = await import(
   "../dist/tools/web.js"
 );
 const { registerGenerateImageTool, slug } = await import(
   "../dist/tools/image-generate.js"
-);
-const { FUSION_PLANNER_ID, registerFusionTool, resolveFusionIds } = await import(
-  "../dist/tools/fusion.js"
 );
 
 const TINY_PNG = Buffer.from(
@@ -131,24 +125,11 @@ const ctx = {
       return { dispose: async () => {} };
     },
   },
-  experimental: {
-    generate: {
-      text: async (input) => {
-        assert.equal(input.model.providerID, "free-pi");
-        return { text: "1. Add the matcher\n2. Run the tests" };
-      },
-    },
-  },
 };
 
 await registerUsageTool(ctx, deps);
-await registerAccountTools(ctx, deps);
 await registerWebTools(ctx, deps);
 await registerGenerateImageTool(ctx, deps);
-await registerFusionTool(ctx, deps, {
-  planner: FUSION_PLANNER_ID,
-  executor: "deepseek-v4-flash",
-});
 
 const signal = new AbortController().signal;
 const freeContext = { sessionID: "s1", signal };
@@ -164,10 +145,7 @@ assert.deepEqual(
   [...tools.keys()].sort(),
   [
     "docs_lookup",
-    "free_pi_buy_credits",
-    "free_pi_docs",
     "free_pi_usage",
-    "fusion_plan",
     "generate_image",
     "web_search",
   ],
@@ -176,12 +154,9 @@ assert.deepEqual(
 // Every tool is gated to free-pi sessions.
 for (const [name, input] of [
   ["free_pi_usage", {}],
-  ["free_pi_docs", {}],
-  ["free_pi_buy_credits", {}],
   ["web_search", { query: "vite" }],
   ["docs_lookup", { library: "next.js", query: "matcher" }],
   ["generate_image", { prompt: "a cat" }],
-  ["fusion_plan", { summary: "needs a fix" }],
 ]) {
   const denied = await call(name, input, otherContext);
   assert.equal(denied.metadata.ok, false, `${name} is gated`);
@@ -193,7 +168,7 @@ assert.equal(usage.metadata.ok, true);
 assert.match(usage.content[0].text, /^tier: free/);
 assert.match(usage.content[0].text, /3,400 \/ 5,000 credits left today/);
 assert.match(usage.content[0].text, /today tokens: 1234 prompt \/ 567 completion/);
-assert.match(usage.content[0].text, /free_pi_buy_credits/);
+assert.doesNotMatch(usage.content[0].text, /buy more credits/);
 
 const formatted = formatUsage({
   tier: "free",
@@ -204,15 +179,6 @@ const formatted = formatUsage({
   lifetime: {},
 });
 assert.match(formatted, /50% of your free daily allowance used/);
-
-const buy = await call("free_pi_buy_credits", {});
-assert.equal(buy.metadata.buy_url, "https://freepi.ai/extra-credits");
-assert.match(buy.content[0].text, /50,000 credits/);
-
-const docs = await call("free_pi_docs", {});
-assert.equal(docs.metadata.ok, true);
-assert.equal(docs.content[0].text, FREE_PI_DOCS);
-assert.match(FREE_PI_DOCS, /free_pi_usage/);
 
 const web = await call("web_search", { query: "vite 6", num_results: 3 });
 assert.equal(web.metadata.ok, true);
@@ -249,40 +215,6 @@ const saved = await readFile(join(dir, image.metadata.path));
 assert.equal(saved.equals(TINY_PNG), true);
 assert.equal((await stat(join(dir, image.metadata.path))).isFile(), true);
 assert.equal(slug("  Héroe del gato!! "), "h-roe-del-gato");
-
-const fusion = await call("fusion_plan", { summary: "Fix the matcher" });
-assert.equal(fusion.metadata.ok, true);
-assert.equal(fusion.metadata.planner, FUSION_PLANNER_ID);
-assert.match(fusion.content[0].text, /Add the matcher/);
-
-assert.deepEqual(
-  resolveFusionIds(
-    ["deepseek-v4-pro", "deepseek-v4-flash"],
-    "deepseek-v4-flash",
-  ),
-  { planner: "deepseek-v4-pro", executor: "deepseek-v4-flash" },
-);
-assert.deepEqual(
-  resolveFusionIds(["deepseek-v4-flash"], "deepseek-v4-flash"),
-  { planner: "deepseek-v4-flash", executor: "deepseek-v4-flash" },
-);
-assert.deepEqual(
-  resolveFusionIds(
-    ["deepseek-v4-pro", "deepseek-v4-flash"],
-    "deepseek-v4-flash",
-    { hasPremium: false },
-  ),
-  { planner: "deepseek-v4-flash", executor: "deepseek-v4-flash" },
-);
-assert.deepEqual(
-  resolveFusionIds(
-    ["deepseek-v4-pro", "deepseek-v4-flash"],
-    "deepseek-v4-flash",
-    { server: { planner: "deepseek-v4-pro", executor: "deepseek-v4-flash" } },
-  ),
-  { planner: "deepseek-v4-pro", executor: "deepseek-v4-flash" },
-);
-assert.equal(resolveFusionIds([], undefined), undefined);
 
 globalThis.fetch = realFetch;
 await rm(dir, { recursive: true, force: true });
