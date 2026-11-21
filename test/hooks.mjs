@@ -384,6 +384,64 @@ try {
   });
   assert.deepEqual(notRetryable.decision, { retry: false });
 
+  // `concurrent` (429, one request at a time) is retried: the plugin rotates
+  // the wire session id and releases the old one so a leaked per-session lock
+  // in the server cannot fail the turn forever.
+  const concurrent = await invoke("retry", "free-pi", {
+    sessionID: "ses_busy",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: {
+      type: "rate_limit",
+      status: 429,
+      message: "one request at a time, 5,351 credits left today",
+    },
+    attempt: 1,
+    decision: { retry: false },
+  });
+  assert.deepEqual(concurrent.decision, { retry: true, delay: 1_000 });
+  const rotated = deps.state.wireSessions.get("ses_busy");
+  assert.match(rotated, /^ses_busy-r/);
+  await Promise.all([...deps.state.sessionClosePromises.values()]);
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.url.endsWith("/session/reset") &&
+        call.headers["x-session-id"] === "ses_busy",
+    ),
+    "the old wire session id is released",
+  );
+
+  // Later requests on the OpenCode session use the rotated id.
+  const afterRotate = await invoke("model.request", "free-pi", {
+    sessionID: "ses_busy",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    headers: {},
+  });
+  assert.equal(afterRotate.headers["x-session-id"], rotated);
+
+  const concurrentAgain = await invoke("retry", "free-pi", {
+    sessionID: "ses_busy",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: { status: 429, message: "one request at a time" },
+    attempt: 3,
+    decision: { retry: false },
+  });
+  assert.deepEqual(concurrentAgain.decision, { retry: true, delay: 4_000 });
+
+  const concurrentExhausted = await invoke("retry", "free-pi", {
+    sessionID: "ses_busy",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: { status: 429, message: "one request at a time" },
+    attempt: 7,
+    decision: { retry: true, delay: 1 },
+  });
+  assert.deepEqual(concurrentExhausted.decision, { retry: false });
+
   // Cache misses are opt-in and need a real re-billed prompt.
   process.env.FREE_PI_CACHE_MISS_NOTICES = "1";
   deps.state.trackedModels.set("ses_cache", {

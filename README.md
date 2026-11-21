@@ -103,6 +103,11 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   plugin finaliza la sesión del proveedor cuando la ejecución del modelo
   termina (éxito, fallo o interrupción) y al apagar OpenCode.
 - Recuperación automática del límite de sesiones concurrentes.
+- **Recuperación de `concurrent`**: free-pi admite una sola petición en vuelo por
+  `x-session-id` y puede dejar el slot bloqueado en el servidor tras un stream
+  abortado. El plugin rota el `x-session-id` (y libera el anterior), reintenta
+  con espera exponencial hasta 6 intentos y evita el error «one request at a
+  time» en el turno.
 - **Catálogo y metadatos resistentes**: el catálogo de free-pi y el registro de
   models.dev se guardan en disco; si la red falla al arrancar se usan las copias
   locales en vez de quedarse sin modelos o sin límites de contexto. Los avisos
@@ -146,9 +151,13 @@ consumo real se consulta en `/me` y `/me/stats` y se refleja en los mensajes de
 cuota y límite.
 
 Los reintentos siguen la política de pi: como máximo 3 reintentos, con espera
-`min(2s · 2^(n-1), 60s)`. Si el catálogo asigna el experimento `compact100`, el
-plugin baja la ventana a 117 647 tokens para que OpenCode compacte al llegar a
-100k, que es el mismo umbral que consigue `reserveTokens: 100000` en el CLI.
+`min(2s · 2^(n-1), 60s)`. El 429 `concurrent` («one request at a time») es la
+excepción: como el servidor puede dejar el slot de una sesión bloqueado, el
+plugin cambia el `x-session-id` de esa sesión, libera el anterior y reintenta
+hasta 6 veces con esperas de 1s a 15s. Si el catálogo asigna el experimento
+`compact100`, el plugin baja la ventana a 117 647 tokens para que OpenCode
+compacte al llegar a 100k, que es el mismo umbral que consigue
+`reserveTokens: 100000` en el CLI.
 
 ## Rutas por plataforma
 

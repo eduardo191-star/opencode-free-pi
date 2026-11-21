@@ -28,6 +28,14 @@ export declare const CHUNK_TIMEOUT_MS = 300000;
 export declare const RETRY_MAX_RETRIES = 3;
 export declare const RETRY_BASE_DELAY_MS = 2000;
 export declare const RETRY_MAX_DELAY_MS = 60000;
+/**
+ * free-pi allows one in-flight request per `x-session-id` and answers a second
+ * one with `429 concurrent`. OpenCode does not retry that itself, and a slot
+ * can leak server-side, so the plugin rotates the wire session id and retries.
+ */
+export declare const CONCURRENT_RETRY_MAX = 6;
+export declare const CONCURRENT_RETRY_BASE_MS = 1000;
+export declare const CONCURRENT_RETRY_MAX_DELAY_MS = 15000;
 /** pi assumes a 5 minute prompt-cache TTL when explaining a miss. */
 export declare const CACHE_TTL_MS: number;
 export declare const CACHE_MISS_NOISE_FLOOR_TOKENS = 1024;

@@ -15,6 +15,7 @@ import {
 } from "../constants.js";
 import type { Deps } from "../deps.js";
 import { trimMap, trimSet } from "../utils/async.js";
+import { forgetWireSessionID, wireSessionID } from "./wire.js";
 
 export function rememberFreePiSession(deps: Deps, sessionID: string): void {
   if (!sessionID) return;
@@ -110,7 +111,10 @@ export async function finalizeFreePiSession(
   deps.state.finalizedSessions.delete(sessionID);
   deps.state.finalizedSessions.add(sessionID);
   trimSet(deps.state.finalizedSessions, SESSION_TRACK_LIMIT);
-  await closeFreePiSession(deps, sessionID).catch(() => undefined);
+  // Release the id the session actually sent; a rotated id may be the live one.
+  await closeFreePiSession(deps, wireSessionID(deps, sessionID)).catch(
+    () => undefined,
+  );
 }
 
 export function forgetFreePiSession(deps: Deps, sessionID: string): void {
@@ -121,4 +125,5 @@ export function forgetFreePiSession(deps: Deps, sessionID: string): void {
   deps.state.activeExecutions.delete(sessionID);
   deps.state.sessionActivity.delete(sessionID);
   deps.state.trackedModels.delete(sessionID);
+  forgetWireSessionID(deps, sessionID);
 }

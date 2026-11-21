@@ -7,6 +7,9 @@ import type { AdTurn } from "../types.js";
 import { resolveToken } from "../auth/token.js";
 import {
   COST_EXPERIMENT_HEADER,
+  CONCURRENT_RETRY_BASE_MS,
+  CONCURRENT_RETRY_MAX,
+  CONCURRENT_RETRY_MAX_DELAY_MS,
   DEFENSE_PROVIDER_ID,
   EFFICIENCY_RULE,
   MAX_OUTPUT_TOKENS,
@@ -17,6 +20,7 @@ import {
   SUBAGENT_HEADER,
 } from "../constants.js";
 import type { Deps } from "../deps.js";
+import { closeFreePiSession } from "../api/session.js";
 import {
   rewriteContextOverflowResponse,
   rewriteLimitResponse,
@@ -25,6 +29,7 @@ import { trimMap } from "../utils/async.js";
 import { watchFreePiNotice } from "./notices.js";
 import { localTitle } from "./title.js";
 import { rememberFreePiSession } from "./track.js";
+import { rotateWireSessionID, wireSessionID } from "./wire.js";
 import {
   recordCompaction,
   recordToolEnd,
@@ -136,7 +141,7 @@ async function applyModelRequest(deps: Deps, event: any): Promise<void> {
   event.headers ??= {};
   const token = await resolveToken(deps);
   if (token) event.headers.authorization = `Bearer ${token}`;
-  event.headers["x-session-id"] = event.sessionID;
+  event.headers["x-session-id"] = wireSessionID(deps, event.sessionID);
   event.headers["x-client-version"] = deps.state.latestClientVersion;
   if (deps.state.subagentSessions.has(event.sessionID)) {
     event.headers[SUBAGENT_HEADER] = "1";
@@ -177,12 +182,54 @@ async function applyModelRequest(deps: Deps, event: any): Promise<void> {
   }
 }
 
+/** `concurrent` is free-pi's per-session 429 ("one request at a time"). */
+function isConcurrentFailure(error: any): boolean {
+  if (!error) return false;
+  const body =
+    typeof error.response?.body === "string" ? error.response.body : "";
+  const message = typeof error.message === "string" ? error.message : "";
+  return (
+    /one request at a time/i.test(message) ||
+    /one request at a time/i.test(body) ||
+    /"concurrent"/.test(body)
+  );
+}
+
 /**
  * pi retries at most three times with `min(2s * 2^(n-1), 60s)`. OpenCode's
  * `attempt` counts the initial call as 1, so pi's attempt is `attempt - 1`.
  * Non-retryable decisions are left alone.
+ *
+ * The one exception is `concurrent`: OpenCode treats the free-pi 429 as fatal,
+ * and the server can leave a per-session lock behind that resets do not clear.
+ * Rotating the wire session id and retrying turns that into a normal retry.
  */
-function applyRetryPolicy(event: any): void {
+function applyRetryPolicy(deps: Deps, event: any): void {
+  if (isConcurrentFailure(event.error)) {
+    if (event.attempt > CONCURRENT_RETRY_MAX) {
+      event.decision = { retry: false };
+      return;
+    }
+    const previous = wireSessionID(deps, event.sessionID);
+    const next = rotateWireSessionID(deps, event.sessionID);
+    // Releasing the old id cleans up an orphaned slot; a leaked live lock
+    // ignores reset, which is exactly why the next request uses a fresh id.
+    void closeFreePiSession(deps, previous).catch(() => undefined);
+    deps.log.info("free-pi session busy; retrying with a fresh session id", {
+      sessionID: event.sessionID,
+      from: previous,
+      to: next,
+      attempt: event.attempt,
+    });
+    event.decision = {
+      retry: true,
+      delay: Math.min(
+        CONCURRENT_RETRY_BASE_MS * 2 ** (event.attempt - 1),
+        CONCURRENT_RETRY_MAX_DELAY_MS,
+      ),
+    };
+    return;
+  }
   if (event.attempt > RETRY_MAX_RETRIES + 1) {
     event.decision = { retry: false };
     return;
@@ -282,7 +329,7 @@ export async function registerSessionHooks(
   await hookForProviders(
     ctx,
     "retry",
-    (event: any) => applyRetryPolicy(event),
+    (event: any) => applyRetryPolicy(deps, event),
     registrations,
   );
   await registerToolHooks(ctx, deps, registrations);

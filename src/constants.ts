@@ -43,6 +43,15 @@ export const RETRY_MAX_RETRIES = 3;
 export const RETRY_BASE_DELAY_MS = 2_000;
 export const RETRY_MAX_DELAY_MS = 60_000;
 
+/**
+ * free-pi allows one in-flight request per `x-session-id` and answers a second
+ * one with `429 concurrent`. OpenCode does not retry that itself, and a slot
+ * can leak server-side, so the plugin rotates the wire session id and retries.
+ */
+export const CONCURRENT_RETRY_MAX = 6;
+export const CONCURRENT_RETRY_BASE_MS = 1_000;
+export const CONCURRENT_RETRY_MAX_DELAY_MS = 15_000;
+
 /** pi assumes a 5 minute prompt-cache TTL when explaining a miss. */
 export const CACHE_TTL_MS = 5 * 60_000;
 export const CACHE_MISS_NOISE_FLOOR_TOKENS = 1_024;

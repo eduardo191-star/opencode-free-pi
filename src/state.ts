@@ -50,6 +50,7 @@ export type RuntimeState = {
   lastSessionResetAt: number;
 
   freePiSessions: Set<string>;
+  wireSessions: Map<string, string>;
   finalizedSessions: Set<string>;
   activeExecutions: Set<string>;
   sessionActivity: Map<string, number>;
@@ -77,6 +78,7 @@ export function createRuntimeState(): RuntimeState {
     sessionClosePromises: new Map(),
     lastSessionResetAt: 0,
     freePiSessions: new Set(),
+    wireSessions: new Map(),
     finalizedSessions: new Set(),
     activeExecutions: new Set(),
     sessionActivity: new Map(),
