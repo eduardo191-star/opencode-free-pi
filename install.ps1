@@ -1,8 +1,7 @@
 $ErrorActionPreference = "Stop"
+$Package = "@eduardo191labs/opencode-free-pi"
 $PluginName = "opencode-free-pi"
 $Uninstall = ($args -contains "-Uninstall") -or ($args -contains "--uninstall")
-$Repo = if ($env:FREEPI_OPENCODE_REPO) { $env:FREEPI_OPENCODE_REPO } else { "eduardo191-star/opencode-free-pi" }
-$Ref = if ($env:FREEPI_OPENCODE_REF) { $env:FREEPI_OPENCODE_REF } else { "main" }
 
 function Get-ConfigDir {
   if ($env:OPENCODE_CONFIG_DIR) { return $env:OPENCODE_CONFIG_DIR }
@@ -14,61 +13,98 @@ function Write-Step([string]$Message) {
   Write-Host $Message
 }
 
+function Get-ConfigFile([string]$Dir) {
+  foreach ($name in @("opencode.json", "opencode.jsonc", "opencode.json5")) {
+    $candidate = Join-Path $Dir $name
+    if (Test-Path -LiteralPath $candidate) { return $candidate }
+  }
+  return (Join-Path $Dir "opencode.json")
+}
+
+function Update-Config([string]$Dir, [bool]$Remove) {
+  New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+  $file = Get-ConfigFile $Dir
+  $config = $null
+  if (Test-Path -LiteralPath $file) {
+    try {
+      $config = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+    } catch {
+      Write-Step "free-pi: no se pudo editar $file automáticamente."
+      Write-Step "free-pi: edita `"plugins`" y quita o añade `"$Package`"."
+      return
+    }
+  }
+  if ($null -eq $config) {
+    $config = [pscustomobject]@{ '$schema' = "https://opencode.ai/config.json" }
+  }
+
+  $plugins = @()
+  if ($null -ne $config.plugins) { $plugins = @($config.plugins) }
+
+  if ($Remove) {
+    $plugins = @($plugins | Where-Object {
+      if ($_ -is [string]) { return -not ($_ -eq $Package -or $_.StartsWith("$Package@")) }
+      return ($null -eq $_ -or $_.package -ne $Package)
+    })
+  } else {
+    $present = $plugins | Where-Object {
+      if ($_ -is [string]) { return ($_ -eq $Package -or $_.StartsWith("$Package@")) }
+      return ($null -ne $_ -and $_.package -eq $Package)
+    }
+    if (-not $present) { $plugins += $Package }
+  }
+
+  if ($null -eq $config.PSObject.Properties["plugins"]) {
+    $config | Add-Member -NotePropertyName "plugins" -NotePropertyValue $plugins -Force
+  } else {
+    $config.plugins = $plugins
+  }
+
+  $config | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $file -Encoding UTF8
+  if ($Remove) {
+    Write-Step "free-pi: eliminado de $file."
+  } else {
+    Write-Step "free-pi: registrado en $file."
+  }
+}
+
+$configDir = Get-ConfigDir
+
 if ($Uninstall) {
-  $pluginDir = Join-Path (Get-ConfigDir) "plugins"
+  Update-Config $configDir $true
+  $pluginDir = Join-Path $configDir "plugins"
   Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $pluginDir "$PluginName.ts")
   Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $pluginDir "$PluginName.js")
-  Write-Step "Removed $PluginName from $pluginDir"
+  & npm uninstall -g $Package 2>$null | Out-Null
+  Write-Step "Removed $Package."
   Write-Step "Restart OpenCode to finish."
   return
 }
 
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-$configDir = Get-ConfigDir
-$pluginDir = Join-Path $configDir "plugins"
-$target = Join-Path $pluginDir "$PluginName.ts"
-$rawBase = if ($env:FREEPI_OPENCODE_RAW_BASE) { $env:FREEPI_OPENCODE_RAW_BASE } else { "https://raw.githubusercontent.com/$Repo/$Ref" }
-$temp = Join-Path ([System.IO.Path]::GetTempPath()) ("$PluginName-" + [guid]::NewGuid().ToString("N") + ".js")
-
-try {
-  $localBuild = $null
-  if ($PSScriptRoot) {
-    $candidate = Join-Path $PSScriptRoot "dist\index.js"
-    if (Test-Path -LiteralPath $candidate) { $localBuild = $candidate }
-  }
-
-  if ($localBuild) {
-    Copy-Item -LiteralPath $localBuild -Destination $temp -Force
-    Write-Step "Using local build: $localBuild"
-  } else {
-    $url = "$rawBase/dist/index.js"
-    Write-Step "Downloading $url"
-    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $temp
-  }
-
-  if (-not (Test-Path -LiteralPath $temp) -or (Get-Item -LiteralPath $temp).Length -eq 0) {
-    throw "downloaded plugin is empty"
-  }
-  if (-not (Select-String -LiteralPath $temp -Pattern "FreePiPlugin" -Quiet)) {
-    throw "downloaded file does not look like the free-pi plugin"
-  }
-
-  New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
-  if (Test-Path -LiteralPath $target) {
-    Copy-Item -LiteralPath $target -Destination "$target.bak" -Force
-  }
-  Copy-Item -LiteralPath $temp -Destination $target -Force
-  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $pluginDir "$PluginName.js")
-
-  Write-Step "Installed $PluginName at $target"
-  Write-Step ""
-  Write-Step "Next steps:"
-  Write-Step "  1. Run: opencode auth login -p free-pi"
-  Write-Step "  2. Restart OpenCode."
-  Write-Step ""
-  $credentials = if ($env:FREEPI_CREDENTIALS_PATH) { $env:FREEPI_CREDENTIALS_PATH } else { "%USERPROFILE%\.free-pi\agent\credentials.json" }
-  Write-Step "Credentials: $credentials"
-} finally {
-  Remove-Item -Force -ErrorAction SilentlyContinue $temp
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+  throw "Node.js 20+ is required"
 }
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+  throw "npm is required"
+}
+
+Write-Step "Installing $Package..."
+& npm install -g "$Package@latest"
+if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+
+if (Get-Command opencode -ErrorAction SilentlyContinue) {
+  & opencode plugin add "$Package@latest" 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    & opencode plugin --global "$Package@latest" 2>$null | Out-Null
+  }
+}
+
+Update-Config $configDir $false
+
+Write-Step ""
+Write-Step "Next steps:"
+Write-Step "  1. Run: opencode auth login free-pi"
+Write-Step "  2. Restart OpenCode (or run /reload)."
+Write-Step ""
+$credentials = if ($env:FREEPI_CREDENTIALS_PATH) { $env:FREEPI_CREDENTIALS_PATH } else { "%USERPROFILE%\.free-pi\agent\credentials.json" }
+Write-Step "Credentials: $credentials"

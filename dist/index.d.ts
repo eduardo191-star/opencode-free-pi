@@ -1,9 +1,9 @@
-import { type Plugin } from "@opencode-ai/plugin";
-export declare const FreePiPlugin: Plugin;
-declare function FreePiV2Setup(ctx: any): Promise<() => Promise<void>>;
-declare const _default: {
-    id: string;
-    setup: typeof FreePiV2Setup;
-    server: Plugin;
-};
-export default _default;
+/**
+ * @eduardo191labs/opencode-free-pi
+ *
+ * Ad-supported free-pi provider plugin for OpenCode V2.
+ */
+export { FreePiPlugin, default } from "./plugin.js";
+export type { Catalog, CatalogModel, FreePiError, FreePiOptions, MeResponse, MeStatsResponse, ModelDefinition, ModelsDevModel, ModelsDevProvider, ModelRegistry, QuotaSnapshot, RequestUsage, } from "./types.js";
+export { createLogger } from "./logging.js";
+export type { Logger, LogLevel } from "./logging.js";

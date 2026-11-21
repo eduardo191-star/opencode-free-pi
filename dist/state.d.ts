@@ -1,0 +1,43 @@
+/** Per-plugin-instance mutable state. */
+import type { AdTurn, Catalog, FreePiError, ModelRegistry, QuotaSnapshot, RequestUsage, SessionResetOutcome, TokenCheckState, TrackedModel } from "./types.js";
+export type RuntimeState = {
+    latestClientVersion: string;
+    providerToken?: string;
+    cachedCatalog?: Catalog;
+    cachedCatalogAt: number;
+    catalogPromise?: Promise<Catalog | undefined>;
+    cachedRegistry?: ModelRegistry;
+    cachedRegistryAt: number;
+    registryAttemptAt: number;
+    registryPromise?: Promise<ModelRegistry | undefined>;
+    costExperimentArm?: string;
+    catalogModels: Catalog;
+    outputLimits: Map<string, number>;
+    quotaCache?: QuotaSnapshot;
+    quotaPromise?: Promise<QuotaSnapshot>;
+    lastQuotaRefreshAt: number;
+    lastUsage?: RequestUsage;
+    lastUsageMessageID?: string;
+    lastFreePiError?: FreePiError;
+    lastErrorLogKey?: string;
+    lastErrorLogAt: number;
+    lastInvalidToken?: string;
+    tokenChecks: Map<string, {
+        at: number;
+        state: TokenCheckState;
+    }>;
+    lastExpiredToken?: string;
+    sessionClosePromises: Map<string, Promise<void>>;
+    sessionResetPromise?: Promise<SessionResetOutcome>;
+    lastSessionResetAt: number;
+    freePiSessions: Set<string>;
+    finalizedSessions: Set<string>;
+    activeExecutions: Set<string>;
+    sessionActivity: Map<string, number>;
+    finalizeTimers: Map<string, ReturnType<typeof setTimeout>>;
+    adTurns: Map<string, AdTurn>;
+    pendingAdTurns: Map<string, AdTurn>;
+    adImpressions: Map<string, Promise<void>>;
+    trackedModels: Map<string, TrackedModel>;
+};
+export declare function createRuntimeState(): RuntimeState;

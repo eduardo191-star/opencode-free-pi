@@ -1,0 +1,114 @@
+/**
+ * Rewrites long-lived free-pi limit responses so the client shows the friendly
+ * message instead of a raw 429. Mirrors the fetch wrapper used by the V1 plugin.
+ */
+
+import type { FreePiError } from "../types.js";
+import { friendlyFreePiError } from "./messages.js";
+
+const LONG_LIMIT_CODES = new Set([
+  "hourly_ceiling",
+  "daily_cap",
+  "rolling_cap",
+  "global_cap",
+  "premium_allowance",
+  "guest_allowance",
+  "concurrent_session",
+  "model_requires_credits",
+  "insufficient_credits",
+  "ads_required",
+  "account_review",
+  "account_ceiling",
+  "region_unavailable",
+]);
+
+type LimitInfo = {
+  code?: string;
+  retryAfterSeconds?: number;
+};
+
+function retryAfterSeconds(response: Response): number | undefined {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number.parseFloat(retryAfter);
+    if (!Number.isNaN(seconds)) return seconds;
+    const at = Date.parse(retryAfter);
+    if (!Number.isNaN(at)) return Math.max(0, (at - Date.now()) / 1000);
+  }
+  const retryAfterMs = response.headers.get("retry-after-ms");
+  if (retryAfterMs) {
+    const ms = Number.parseFloat(retryAfterMs);
+    if (!Number.isNaN(ms)) return ms / 1000;
+  }
+  return undefined;
+}
+
+function limitInfo(body: string, response: Response): LimitInfo | undefined {
+  let code: string | undefined;
+  let seconds: number | undefined;
+  try {
+    const data = JSON.parse(body);
+    const rawCode = data?.code ?? data?.error?.code ?? data?.limit;
+    if (typeof rawCode === "string") code = rawCode;
+    if (typeof data?.retry_after_seconds === "number") {
+      seconds = data.retry_after_seconds;
+    }
+  } catch {}
+  seconds ??= retryAfterSeconds(response);
+  if (code && LONG_LIMIT_CODES.has(code)) return { code, retryAfterSeconds: seconds };
+  if (seconds !== undefined && seconds > 120) {
+    return { code, retryAfterSeconds: seconds };
+  }
+  return undefined;
+}
+
+function friendlyBody(body: string, info: LimitInfo): string {
+  try {
+    const data = JSON.parse(body);
+    if (!data || typeof data !== "object") return body;
+    const error: FreePiError = {
+      status: 429,
+      code: info.code ?? "unknown",
+      message: typeof data.message === "string" ? data.message : undefined,
+      retry_after_seconds: info.retryAfterSeconds,
+      clears_at: typeof data.clears_at === "string" ? data.clears_at : undefined,
+      limit: typeof data.limit === "string" ? data.limit : undefined,
+    };
+    const friendly = friendlyFreePiError(error);
+    data.message = friendly;
+    if (data.error && typeof data.error === "object") {
+      data.error.message = friendly;
+    }
+    return JSON.stringify(data);
+  } catch {
+    return body;
+  }
+}
+
+/**
+ * Returns a replacement response when `response` is a 429 that represents a
+ * long-lived limit. The replacement is a 400 with the same body but a friendly
+ * message, so the model error surface reads it like any other failure.
+ */
+export async function rewriteLimitResponse(
+  response: Response,
+): Promise<Response | undefined> {
+  if (response.status !== 429) return undefined;
+  const body = await response
+    .clone()
+    .text()
+    .catch(() => "");
+  if (!body) return undefined;
+  const info = limitInfo(body, response);
+  if (!info) return undefined;
+
+  const headers = new Headers(response.headers);
+  headers.delete("retry-after");
+  headers.delete("retry-after-ms");
+  headers.set("x-free-pi-original-status", "429");
+  return new Response(friendlyBody(body, info), {
+    status: 400,
+    statusText: "Bad Request",
+    headers,
+  });
+}

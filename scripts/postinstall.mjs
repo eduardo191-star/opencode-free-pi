@@ -1,32 +1,26 @@
-import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
+/**
+ * Registers the published package in the global OpenCode configuration.
+ *
+ * OpenCode V2 loads plugins from the `plugins` list in `opencode.json(c)`.
+ * Copying the built file into a plugins directory does not work for this
+ * package because it imports `@opencode/plugin` at runtime, so the package has
+ * to stay resolvable from node_modules.
+ */
+
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const source = join(packageRoot, "dist", "index.js");
+const PACKAGE_NAME = "@eduardo191labs/opencode-free-pi";
 const isGlobal = process.env.npm_config_global === "true";
-
-if (!isGlobal && process.env.FREEPI_CONFIGURE !== "1") {
-  console.log(
-    "free-pi: instalación local; usa `npm i -g` o FREEPI_CONFIGURE=1 para registrar el plugin.",
-  );
-  process.exit(0);
-}
-
-if (!existsSync(source)) {
-  console.error(`free-pi: no se encontró ${source}`);
-  process.exit(1);
-}
+const shouldConfigure = isGlobal || process.env.FREEPI_CONFIGURE === "1";
 
 const configDir =
   process.env.OPENCODE_CONFIG_DIR ||
   (process.env.XDG_CONFIG_HOME
     ? join(process.env.XDG_CONFIG_HOME, "opencode")
     : join(homedir(), ".config", "opencode"));
-const pluginDir = join(configDir, "plugins");
-const target = join(pluginDir, "opencode-free-pi.ts");
 
 function display(file) {
   const home = homedir();
@@ -34,31 +28,71 @@ function display(file) {
   return file.replace(home, "~");
 }
 
-const configNames = ["opencode.json", "opencode.jsonc", "opencode.json5"];
-let configured = false;
-for (const name of configNames) {
-  const file = join(configDir, name);
-  if (!existsSync(file)) continue;
+async function removeLegacyCopy() {
+  const legacy = join(configDir, "plugins", "opencode-free-pi.ts");
+  if (!existsSync(legacy)) return;
   try {
-    const text = await readFile(file, "utf8");
-    configured = /@eduardo191labs\/opencode-free-pi/.test(text);
+    const text = await readFile(legacy, "utf8");
+    if (text.includes("free-pi")) await rm(legacy, { force: true });
   } catch {}
-  if (configured) break;
 }
 
-if (configured) {
-  await rm(target, { force: true });
+if (!shouldConfigure) {
   console.log(
-    "free-pi: el paquete ya está configurado en OpenCode; se omitió el plugin local.",
+    `free-pi: instalación local. Añade "${PACKAGE_NAME}" a "plugins" en tu opencode.json.`,
   );
-  console.log("free-pi: reinicia OpenCode y ejecuta `opencode plugin list`.");
   process.exit(0);
 }
 
-await mkdir(pluginDir, { recursive: true });
-await copyFile(source, target);
+await removeLegacyCopy();
 
-console.log(`free-pi: plugin instalado en ${display(target)}`);
+const candidates = ["opencode.json", "opencode.jsonc", "opencode.json5"];
+let configFile;
+let config;
+
+for (const name of candidates) {
+  const file = join(configDir, name);
+  if (!existsSync(file)) continue;
+  configFile = file;
+  try {
+    config = JSON.parse(await readFile(file, "utf8"));
+  } catch {
+    // Comments or JSON5 cannot be rewritten safely; report the manual step.
+    config = undefined;
+  }
+  break;
+}
+
+if (configFile && !config) {
+  console.log(
+    `free-pi: no se pudo editar ${display(configFile)} automáticamente.`,
+  );
+  console.log(`free-pi: añade "${PACKAGE_NAME}" a "plugins".`);
+  process.exit(0);
+}
+
+if (!config) {
+  configFile = join(configDir, "opencode.json");
+  config = { $schema: "https://opencode.ai/config.json" };
+}
+
+const plugins = Array.isArray(config.plugins) ? config.plugins : [];
+const configured = plugins.some((entry) => {
+  if (typeof entry === "string") {
+    return entry === PACKAGE_NAME || entry.startsWith(`${PACKAGE_NAME}@`);
+  }
+  return entry?.package === PACKAGE_NAME;
+});
+
+if (!configured) {
+  plugins.push(PACKAGE_NAME);
+  config.plugins = plugins;
+  await writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`);
+  console.log(`free-pi: registrado en ${display(configFile)}.`);
+} else {
+  console.log(`free-pi: ya estaba registrado en ${display(configFile)}.`);
+}
+
 console.log(
-  "free-pi: reinicia OpenCode y ejecuta `opencode auth login -p free-pi`.",
+  "free-pi: ejecuta `opencode auth login -p free-pi` y luego /reload.",
 );

@@ -1,6 +1,6 @@
 {
   "name": "@eduardo191labs/opencode-free-pi",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "Ad-supported free-pi provider plugin for OpenCode on Windows, Linux, macOS and Termux",
   "type": "module",
   "main": "./dist/index.js",
@@ -47,7 +47,7 @@
   },
   "homepage": "https://github.com/eduardo191-star/opencode-free-pi#readme",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -57,6 +57,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.19.0"
+    "@opencode/plugin": "^2.3.2",
+    "@opencode/schema": "^2.3.2"
   }
 }
