@@ -6,10 +6,12 @@
  * `/tools/vision` and returns the vision model's text answer. Each call counts
  * against the user's daily allowance.
  */
+import { createHash } from "node:crypto";
 import { resolveToken } from "../auth/token.js";
 import { isFreePiSession } from "../session/tools.js";
 import { resolveBaseUrl } from "../utils/urls.js";
 import { loadImage, prepareImage } from "./image.js";
+import { spendOnce } from "./spend-cache.js";
 import { withVisionSlot } from "./vision-queue.js";
 const TOOL_NAME = "look_at_image";
 const TIMEOUT_MS = 90_000;
@@ -212,30 +214,39 @@ async function executeVision(ctx, deps, raw, context) {
     if (!token) {
         return fail("look_at_image needs a free-pi sign-in. Do not retry; tell the user to connect the free-pi integration, and continue without this tool.");
     }
-    const queued = await withVisionSlot(deps.log, () => askVision(deps, token, prepared.data, prepared.mime, question, context.signal));
-    if (!queued.ok) {
-        return fail("Another image question is still running. Wait a moment and call look_at_image again.");
-    }
-    if (!queued.value.ok)
-        return fail(queued.value.text);
-    const { answer, attempts } = queued.value;
-    const elapsed = Date.now() - startedAt;
-    deps.log.info("look_at_image answered", {
-        path,
-        ms: elapsed,
-        attempts,
-        resized: prepared.resized,
-        bytes: prepared.bytes,
-        size: `${prepared.width}x${prepared.height}`,
-        mime: prepared.mime,
-        model: answer.model,
-    });
-    return done(questionText(path, answer.text), {
-        ok: true,
-        ...(answer.cost_usd !== undefined ? { cost_usd: answer.cost_usd } : {}),
-        ...(answer.model !== undefined ? { model: answer.model } : {}),
-        elapsed_ms: elapsed,
-        attempts,
+    const imageKey = createHash("sha256")
+        .update(prepared.mime)
+        .update("\u0000")
+        .update(prepared.data)
+        .update("\u0000")
+        .update(question)
+        .digest("hex");
+    return spendOnce(deps, `vision:${imageKey}`, async () => {
+        const queued = await withVisionSlot(deps.log, () => askVision(deps, token, prepared.data, prepared.mime, question, context.signal));
+        if (!queued.ok) {
+            return fail("Another image question is still running. Wait a moment and call look_at_image again.");
+        }
+        if (!queued.value.ok)
+            return fail(queued.value.text);
+        const { answer, attempts } = queued.value;
+        const elapsed = Date.now() - startedAt;
+        deps.log.info("look_at_image answered", {
+            path,
+            ms: elapsed,
+            attempts,
+            resized: prepared.resized,
+            bytes: prepared.bytes,
+            size: `${prepared.width}x${prepared.height}`,
+            mime: prepared.mime,
+            model: answer.model,
+        });
+        return done(questionText(path, answer.text), {
+            ok: true,
+            ...(answer.cost_usd !== undefined ? { cost_usd: answer.cost_usd } : {}),
+            ...(answer.model !== undefined ? { model: answer.model } : {}),
+            elapsed_ms: elapsed,
+            attempts,
+        });
     });
 }
 /**

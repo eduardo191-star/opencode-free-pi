@@ -4,10 +4,11 @@ import type { FreePiError } from "../types.js";
 import { formatRefillTime, formatWait } from "../utils/numbers.js";
 
 const FREE_PI_ERROR_TEXT: Record<string, string> = {
-  daily_cap: "Out of free credits today; refills at UTC midnight.",
+  daily_cap:
+    "Out of free credits today; they refill at UTC midnight, or add credits to keep going now.",
   queue_wait: "free-pi is near its daily budget; wait and retry.",
   rolling_cap:
-    "Over the rolling spend cap on the free tier; wait for the retry window.",
+    "Over the rolling spend cap on the free tier; wait for the retry window or add credits.",
   concurrent:
     "Only one request at a time on the free tier; wait for the current one to finish.",
   concurrent_session:

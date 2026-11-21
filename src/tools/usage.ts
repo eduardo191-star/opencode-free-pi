@@ -71,6 +71,28 @@ export function formatUsage(stats: any): string {
       ? creditsLeftLine(remaining, allowance, new Date(refillAt))
       : `today: ${percentUsed(t.spent_usd_today ?? 0, t.cap_usd_today ?? 0)}% of your free daily allowance used`;
 
+  const hasCredits =
+    typeof remaining === "number" &&
+    typeof allowance === "number" &&
+    allowance > 0;
+  const low = hasCredits && remaining > 0 && remaining <= allowance * 0.1;
+  const empty = hasCredits && remaining <= 0;
+  const buyUrl =
+    typeof t.buy_url === "string" && t.buy_url ? t.buy_url : undefined;
+  const creditLines = [
+    ...(low
+      ? [
+          `low credits: ${Math.round((remaining / allowance) * 100)}% of today's allowance left`,
+        ]
+      : []),
+    ...(empty
+      ? [
+          "Out of free credits today; they refill at the reset time, or add credits to keep going now.",
+        ]
+      : []),
+    ...(buyUrl && (low || empty) ? [`Buy credits: ${buyUrl}`] : []),
+  ];
+
   const tieredLines = tiered
     ? [
         creditsLeftLine(remaining, allowance, new Date(refillAt)),
@@ -86,6 +108,7 @@ export function formatUsage(stats: any): string {
   return [
     `tier: ${t.tier ?? "unknown"}`,
     ...(tiered ? [tieredLines[0]!] : [todayLine]),
+    ...creditLines,
     ...(t.lane === "fallback" ? [SLOW_LANE_NOTICE] : []),
     ...(tiered
       ? tieredLines.slice(1)

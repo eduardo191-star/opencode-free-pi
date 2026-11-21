@@ -172,6 +172,14 @@ códigos `daily_cap`, `rolling_cap`, `rate_limited`, `not_found`,
 que el CLI, para que el agente sepa cuándo no debe reintentar. Igual que
 `look_at_image`, cada llamada consume allowance.
 
+Las tres herramientas que gastan cuota (`web_search`, `docs_lookup` y
+`look_at_image`) comparten una caché de respuestas de 30 minutos: si el modelo,
+un subagente o un reintento piden exactamente lo mismo, se reutiliza la primera
+respuesta y no se vuelve a cobrar. Las llamadas idénticas en paralelo comparten
+una sola petición, y los errores nunca se cachean para que el siguiente intento
+vea el estado real del servidor. La respuesta cacheada lo indica y no incluye
+`cost_usd`.
+
 `free_pi_usage` consulta `/me/stats` y resume el tier, los créditos restantes
 con su hora de recarga en ET, los créditos premium o de referidos y los tokens
 de hoy y de por vida. Si el servidor asigna el carril lento, incluye el aviso

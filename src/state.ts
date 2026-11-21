@@ -64,6 +64,18 @@ export type RuntimeState = {
   trackedModels: Map<string, TrackedModel>;
   cacheMisses: Map<string, CacheMissState>;
   toolStats: Map<string, ToolStats>;
+  /** Successful paid-tool answers, keyed by canonical input, to avoid rebilling. */
+  toolSpend: Map<
+    string,
+    {
+      at: number;
+      output: {
+        content: ReadonlyArray<{ type: "text"; text: string }>;
+        metadata: Record<string, unknown>;
+      };
+    }
+  >;
+  toolSpendPending: Map<string, Promise<any>>;
   subagentSessions: Set<string>;
 };
 
@@ -95,6 +107,8 @@ export function createRuntimeState(): RuntimeState {
     trackedModels: new Map(),
     cacheMisses: new Map(),
     toolStats: new Map(),
+    toolSpend: new Map(),
+    toolSpendPending: new Map(),
     subagentSessions: new Set(),
   };
 }

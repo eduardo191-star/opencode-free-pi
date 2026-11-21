@@ -168,7 +168,37 @@ assert.equal(usage.metadata.ok, true);
 assert.match(usage.content[0].text, /^tier: free/);
 assert.match(usage.content[0].text, /3,400 \/ 5,000 credits left today/);
 assert.match(usage.content[0].text, /today tokens: 1234 prompt \/ 567 completion/);
-assert.doesNotMatch(usage.content[0].text, /buy more credits/);
+assert.doesNotMatch(usage.content[0].text, /Buy credits:/);
+assert.doesNotMatch(usage.content[0].text, /low credits:/);
+
+// Low allowance warns once and points at the credit page.
+const lowUsage = formatUsage({
+  tier: "free",
+  remaining_credits_today: 400,
+  allowance_credits: 5000,
+  refill_at: "2026-11-22T05:00:00.000Z",
+  buy_url: "https://freepi.ai/extra-credits",
+  prompt_tokens_today: 0,
+  completion_tokens_today: 0,
+  lifetime: {},
+});
+assert.match(lowUsage, /low credits: 8% of today's allowance left/);
+assert.match(lowUsage, /Buy credits: https:\/\/freepi\.ai\/extra-credits/);
+
+// The same page is offered once the allowance is gone.
+const emptyUsage = formatUsage({
+  tier: "free",
+  remaining_credits_today: 0,
+  allowance_credits: 5000,
+  refill_at: "2026-11-22T05:00:00.000Z",
+  buy_url: "https://freepi.ai/extra-credits",
+  prompt_tokens_today: 0,
+  completion_tokens_today: 0,
+  lifetime: {},
+});
+assert.match(emptyUsage, /Out of free credits today/);
+assert.match(emptyUsage, /Buy credits: https:\/\/freepi\.ai\/extra-credits/);
+assert.doesNotMatch(emptyUsage, /low credits:/);
 
 const formatted = formatUsage({
   tier: "free",
@@ -189,6 +219,21 @@ const webRequest = requests.find((r) => r.url.endsWith("/tools/web-search"));
 assert.deepEqual(webRequest.body, { query: "vite 6", num_results: 3 });
 assert.equal(webRequest.headers.authorization, "Bearer test-token");
 
+// Repeating the exact same paid call reuses the answer: no second charge.
+const webCalls = () =>
+  requests.filter((r) => r.url.endsWith("/tools/web-search")).length;
+const beforeRepeat = webCalls();
+const repeated = await call("web_search", { query: "vite 6", num_results: 3 });
+assert.equal(repeated.metadata.ok, true);
+assert.equal(repeated.metadata.cached, true);
+assert.equal(repeated.metadata.cost_usd, undefined);
+assert.match(repeated.content[0].text, /no allowance used/);
+assert.equal(webCalls(), beforeRepeat);
+
+// A different query is a new search.
+await call("web_search", { query: "vite 7", num_results: 3 });
+assert.equal(webCalls(), beforeRepeat + 1);
+
 const lookup = await call("docs_lookup", {
   library: "next.js",
   query: "matcher",
@@ -196,6 +241,17 @@ const lookup = await call("docs_lookup", {
 assert.equal(lookup.metadata.library_id, "/vercel/next.js");
 assert.match(lookup.content[0].text, /Next\.js \(library_id: \/vercel\/next\.js\)/);
 assert.match(lookup.content[0].text, /Middleware matcher docs/);
+
+const docsCalls = () =>
+  requests.filter((r) => r.url.endsWith("/tools/docs")).length;
+const beforeDocs = docsCalls();
+const lookupAgain = await call("docs_lookup", {
+  library: "next.js",
+  query: "matcher",
+});
+assert.equal(lookupAgain.metadata.cached, true);
+assert.match(lookupAgain.content[0].text, /no allowance used/);
+assert.equal(docsCalls(), beforeDocs);
 
 assert.equal(
   formatWebResults("nothing", []),

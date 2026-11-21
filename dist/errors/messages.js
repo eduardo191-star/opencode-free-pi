@@ -1,9 +1,9 @@
 /** Human-readable copy for free-pi error codes. */
 import { formatRefillTime, formatWait } from "../utils/numbers.js";
 const FREE_PI_ERROR_TEXT = {
-    daily_cap: "Out of free credits today; refills at UTC midnight.",
+    daily_cap: "Out of free credits today; they refill at UTC midnight, or add credits to keep going now.",
     queue_wait: "free-pi is near its daily budget; wait and retry.",
-    rolling_cap: "Over the rolling spend cap on the free tier; wait for the retry window.",
+    rolling_cap: "Over the rolling spend cap on the free tier; wait for the retry window or add credits.",
     concurrent: "Only one request at a time on the free tier; wait for the current one to finish.",
     concurrent_session: "This account is already at its free-pi session limit. Wait for a slot to free up and retry.",
     context_ceiling: "This conversation is too large for free-pi's context limit.",
