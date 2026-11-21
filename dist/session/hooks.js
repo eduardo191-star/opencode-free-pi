@@ -2,10 +2,11 @@
 import { ensureAdImpression } from "../ads/impression.js";
 import { resolveAdTurn } from "../ads/resolve.js";
 import { resolveToken } from "../auth/token.js";
-import { COST_EXPERIMENT_HEADER, DEFENSE_PROVIDER_ID, EFFICIENCY_RULE, MAX_OUTPUT_TOKENS, PROVIDER_ID, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, } from "../constants.js";
+import { COST_EXPERIMENT_HEADER, DEFENSE_PROVIDER_ID, EFFICIENCY_RULE, MAX_OUTPUT_TOKENS, PROVIDER_ID, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, SUBAGENT_HEADER, } from "../constants.js";
 import { rewriteContextOverflowResponse, rewriteLimitResponse, } from "../errors/limit.js";
 import { trimMap } from "../utils/async.js";
 import { watchFreePiNotice } from "./notices.js";
+import { localTitle } from "./title.js";
 import { rememberFreePiSession } from "./track.js";
 import { recordCompaction, recordToolEnd, recordToolStart, toolHeaders, } from "./tools.js";
 import { rememberTrackedModel } from "./usage.js";
@@ -26,10 +27,11 @@ async function applyGeneration(deps, event, kind) {
     if (!isFreePiProvider(event.model?.providerID))
         return;
     rememberFreePiSession(deps, event.sessionID);
-    // V1 disabled the title agent. Returning an empty result keeps the title
-    // request off the free-pi account, which also avoids an extra session slot.
+    // V1 disabled the title agent. OpenCode still asks for a title, so answer
+    // from the first user message: no free-pi request, no ad impression, and the
+    // session leaves the "New session" state immediately.
     if (kind === "title") {
-        event.result = "";
+        event.result = localTitle(event.messages);
         return;
     }
     const modelID = event.model?.id;
@@ -77,6 +79,9 @@ async function applyModelRequest(deps, event) {
         event.headers.authorization = `Bearer ${token}`;
     event.headers["x-session-id"] = event.sessionID;
     event.headers["x-client-version"] = deps.state.latestClientVersion;
+    if (deps.state.subagentSessions.has(event.sessionID)) {
+        event.headers[SUBAGENT_HEADER] = "1";
+    }
     if (deps.state.costExperimentArm) {
         event.headers[COST_EXPERIMENT_HEADER] = deps.state.costExperimentArm;
     }

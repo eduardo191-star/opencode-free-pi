@@ -23,6 +23,12 @@ function applyCatalog(deps, catalog) {
         typeof arm === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(arm)
             ? arm
             : undefined;
+    if (typeof catalog.notice === "string" &&
+        catalog.notice &&
+        catalog.notice !== state.lastCatalogNotice) {
+        state.lastCatalogNotice = catalog.notice;
+        deps.log.info("free-pi catalog notice", { notice: catalog.notice });
+    }
     state.cachedCatalog = catalog;
     state.cachedCatalogAt = Date.now();
     return catalog;

@@ -86,6 +86,14 @@ export async function fetchQuota(
       : undefined;
     if (meResponse?.ok || statsResponse?.ok)
       rememberTokenCheck(deps, token, "ok");
+    if (
+      typeof me?.notice === "string" &&
+      me.notice &&
+      me.notice !== deps.state.lastQuotaNotice
+    ) {
+      deps.state.lastQuotaNotice = me.notice;
+      deps.log.info("free-pi account notice", { notice: me.notice });
+    }
     const snapshot: QuotaSnapshot = {
       fetchedAt: Date.now(),
       token,

@@ -24,5 +24,6 @@ export function createRuntimeState() {
         trackedModels: new Map(),
         cacheMisses: new Map(),
         toolStats: new Map(),
+        subagentSessions: new Set(),
     };
 }

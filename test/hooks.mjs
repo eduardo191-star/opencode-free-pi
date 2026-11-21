@@ -232,16 +232,26 @@ try {
   });
   assert.deepEqual(other.headers, {});
 
-  // Title requests are suppressed so they do not spend a session slot.
+  // Title requests are answered locally so they cost no credits and no ad.
   const title = await invoke("title", "free-pi", {
     sessionID: "ses_parent",
     kind: "title",
     model: { providerID: "free-pi", id: "hy4-flash" },
-    messages: [],
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Here is the first message of the conversation:\n\n<message>\nFix the login redirect bug\n</message>\n\nReply with only the title.",
+          },
+        ],
+      },
+    ],
     options: {},
     system: [],
   });
-  assert.equal(title.result, "");
+  assert.equal(title.result, "Fix the login redirect bug");
 
   // The suppressed title request must not spend an ad impression either.
   const adCountBeforeTitle = calls.filter((call) =>
@@ -260,6 +270,17 @@ try {
     adCountBeforeTitle,
     "title requests do not fetch an ad",
   );
+
+  // Child sessions carry the same marker as the CLI's subagent providers.
+  deps.state.subagentSessions.add("ses_child");
+  const childRequest = await invoke("model.request", "free-pi", {
+    sessionID: "ses_child",
+    agent: "explore",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    headers: {},
+  });
+  assert.equal(childRequest.headers["x-freepi-subagent"], "1");
 
   // Tool outcomes reach the next model request as free-pi's three headers.
   const toolBefore = toolHooks.get("execute.before")[0];

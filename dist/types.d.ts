@@ -87,8 +87,10 @@ export type RegistryCandidate = {
     model: ModelsDevModel;
 };
 export type Catalog = {
+    min?: string;
     latest?: string;
     default_model?: string;
+    notice?: string;
     models?: CatalogModel[];
     cost_experiment?: {
         arm?: string;

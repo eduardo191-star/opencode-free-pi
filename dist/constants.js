@@ -10,6 +10,7 @@ export const CONSENT_VERSION = "4";
 export const CONTEXT_WINDOW = 200_000;
 export const MAX_OUTPUT_TOKENS = 32_768;
 export const AD_CONTEXT_HEADER = "x-ad-context";
+export const SUBAGENT_HEADER = "x-freepi-subagent";
 export const COST_EXPERIMENT_HEADER = "x-freepi-cost-exp";
 export const EFFICIENCY_RULE = "- When several independent reads or searches are needed, issue them in the same turn.";
 /**

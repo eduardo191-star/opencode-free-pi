@@ -74,6 +74,13 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - **Compactación integrada**: los errores `context_too_long` de free-pi se
   reescriben para que OpenCode los reconozca como desbordamiento de contexto y
   ejecute `/compact` automáticamente en vez de terminar el turno.
+- **Títulos locales**: OpenCode pide un título al modelo al crear una sesión.
+  El plugin lo responde con la primera línea del primer mensaje, sin gastar
+  créditos, sin pedir un anuncio y sin dejar la sesión atascada en
+  «New session».
+- **Subagentes identificados**: las sesiones hijas envían
+  `x-freepi-subagent: 1`, igual que los proveedores que el CLI crea para sus
+  subagentes.
 - **Pensamiento como el CLI**: todos los modelos razonan y empiezan en `off`;
   el selector ofrece `minimal`, `low`, `medium` y `high` mediante
   `reasoning_effort`, igual que `pi-ai`. No se anuncian `thinking_budget` ni
@@ -94,7 +101,9 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - Recuperación automática del límite de sesiones concurrentes.
 - **Catálogo y metadatos resistentes**: el catálogo de free-pi y el registro de
   models.dev se guardan en disco; si la red falla al arrancar se usan las copias
-  locales en vez de quedarse sin modelos o sin límites de contexto.
+  locales en vez de quedarse sin modelos o sin límites de contexto. Los avisos
+  que el servidor manda en el catálogo y en `/me` (`notice`) se registran una
+  vez en el log del plugin.
 - Compatible con rutas, credenciales y navegador de cada sistema operativo.
 
 No incluye herramientas personalizadas. Usa las herramientas integradas de
@@ -106,6 +115,7 @@ El plugin replica las cabeceras del plugin V1 de free-pi:
 
 - **Modelo**: `authorization`, `x-session-id`, `x-client-version`,
   `x-turn-id` y `x-freepi-cost-exp` (cuando el catálogo asigna un experimento).
+  Las sesiones hijas añaden `x-freepi-subagent: 1`.
 - **Resultados de herramientas**: `x-freepi-tool-meta` (duración, código de
   salida y truncado de las últimas llamadas), `x-freepi-tool-errors` (IDs de
   herramientas fallidas) y `x-freepi-compacted` (mensajes plegados por la

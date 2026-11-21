@@ -27,6 +27,8 @@ export type RuntimeState = {
   registryAttemptAt: number;
   registryPromise?: Promise<ModelRegistry | undefined>;
   costExperimentArm?: string;
+  lastCatalogNotice?: string;
+  lastQuotaNotice?: string;
   catalogModels: Catalog;
   outputLimits: Map<string, number>;
 
@@ -58,6 +60,7 @@ export type RuntimeState = {
   trackedModels: Map<string, TrackedModel>;
   cacheMisses: Map<string, CacheMissState>;
   toolStats: Map<string, ToolStats>;
+  subagentSessions: Set<string>;
 };
 
 export function createRuntimeState(): RuntimeState {
@@ -84,5 +87,6 @@ export function createRuntimeState(): RuntimeState {
     trackedModels: new Map(),
     cacheMisses: new Map(),
     toolStats: new Map(),
+    subagentSessions: new Set(),
   };
 }

@@ -10,6 +10,7 @@ import { recordUsage } from "./usage.js";
 const EVENT_TYPES = [
     "credential.updated",
     "credential.switched",
+    "session.created",
     "session.execution.started",
     "session.execution.succeeded",
     "session.execution.failed",
@@ -29,6 +30,17 @@ async function handleEvent(ctx, deps, event) {
                 return;
             deps.state.providerToken = next;
             await ctx.provider.reload().catch(() => undefined);
+            return;
+        }
+        case "session.created": {
+            // The CLI marks requests from its own subagents so the server can bill
+            // and rate-limit them separately; OpenCode's children map the same way.
+            const sessionID = event.data?.sessionID;
+            if (typeof sessionID !== "string")
+                return;
+            if (typeof event.data?.parentID === "string") {
+                deps.state.subagentSessions.add(sessionID);
+            }
             return;
         }
         case "session.execution.started": {
@@ -67,6 +79,7 @@ async function handleEvent(ctx, deps, event) {
             forgetFreePiSession(deps, sessionID);
             forgetCacheMiss(deps, sessionID);
             forgetToolStats(deps, sessionID);
+            deps.state.subagentSessions.delete(sessionID);
             return;
         }
         case "location.shutdown": {
