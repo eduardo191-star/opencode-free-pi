@@ -35,7 +35,7 @@ type ToolEnd = {
   result?: ToolResultLike;
 };
 
-function isFreePiSession(deps: Deps, sessionID: string): boolean {
+export function isFreePiSession(deps: Deps, sessionID: string): boolean {
   if (deps.state.freePiSessions.has(sessionID)) return true;
   const tracked = deps.state.trackedModels.get(sessionID);
   return (

@@ -83,7 +83,9 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   imagen), y enviarlas como partes `image_url` incrusta cada imagen leída
   (cientos de KB) en la petición, desborda la ventana de 200k y gasta la
   cuota diaria en tokens de imagen. OpenCode sustituye las imágenes por un
-  aviso de que el modelo no acepta esa entrada.
+  aviso de que el modelo no acepta esa entrada, y el plugin aplica el mismo
+  aviso al terminar la herramienta para que el base64 no quede guardado en la
+  sesión.
 - **Subagentes identificados**: las sesiones hijas envían
   `x-freepi-subagent: 1`, igual que los proveedores que el CLI crea para sus
   subagentes.

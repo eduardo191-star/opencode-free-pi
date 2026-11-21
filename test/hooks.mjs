@@ -402,6 +402,60 @@ try {
   );
   assert.equal(withTools.headers["x-freepi-tool-errors"], "v1:call_2");
 
+  // free-pi is text-only, so a read image is replaced when the tool settles:
+  // the base64 payload never enters the session or a later compaction.
+  const imageEvent = {
+    sessionID: "ses_parent",
+    agent: "build",
+    messageID: "msg_tool",
+    id: "call_3",
+    tool: "read",
+    input: {},
+    status: "completed",
+    result: {
+      content: [
+        { type: "text", text: "Image read successfully" },
+        {
+          type: "file",
+          uri: "data:image/jpeg;base64,AAAA",
+          mime: "image/jpeg",
+          name: "photo.jpg",
+        },
+      ],
+    },
+  };
+  await toolAfter.callback(imageEvent);
+  assert.deepEqual(imageEvent.result.content, [
+    { type: "text", text: "Image read successfully" },
+    {
+      type: "text",
+      text: 'ERROR: Cannot read "photo.jpg" (this model does not support image input). Inform the user.',
+    },
+  ]);
+
+  // Sessions served by any other provider keep their media untouched.
+  const otherProviderEvent = {
+    sessionID: "ses_other",
+    agent: "build",
+    messageID: "msg_tool",
+    id: "call_4",
+    tool: "read",
+    input: {},
+    status: "completed",
+    result: {
+      content: [
+        {
+          type: "file",
+          uri: "data:image/jpeg;base64,AAAA",
+          mime: "image/jpeg",
+          name: "photo.jpg",
+        },
+      ],
+    },
+  };
+  await toolAfter.callback(otherProviderEvent);
+  assert.equal(otherProviderEvent.result.content[0].type, "file");
+
   // A compaction marks the next request with the number of folded messages.
   await invoke("compaction", "free-pi", {
     sessionID: "ses_parent",

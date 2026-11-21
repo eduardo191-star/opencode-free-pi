@@ -43,6 +43,7 @@ import {
   wireSessionID,
 } from "./wire.js";
 import {
+  isFreePiSession,
   recordCompaction,
   recordToolEnd,
   recordToolStart,
@@ -355,8 +356,33 @@ async function registerToolHooks(
         status: event.status,
         ...(event.status === "completed" ? { result: event.result } : {}),
       });
+      replaceUnsupportedImages(deps, event);
     }),
   );
+}
+
+/**
+ * free-pi only accepts text, like the provider CLI. OpenCode already swaps
+ * media for this notice when it builds a request for a text-only model, but
+ * doing it when the tool settles keeps the base64 image out of the session
+ * (and out of compaction) instead of storing hundreds of KB per read.
+ */
+function replaceUnsupportedImages(deps: Deps, event: any): void {
+  if (event.status !== "completed") return;
+  if (!isFreePiSession(deps, event.sessionID)) return;
+  const content = event.result?.content;
+  if (!Array.isArray(content)) return;
+  const replaced = content.map((part: any) => {
+    if (part?.type !== "file" || typeof part.mime !== "string") return part;
+    if (!part.mime.toLowerCase().startsWith("image/")) return part;
+    const name = typeof part.name === "string" ? part.name : part.mime;
+    return {
+      type: "text",
+      text: `ERROR: Cannot read "${name}" (this model does not support image input). Inform the user.`,
+    };
+  });
+  if (replaced.every((part, index) => part === content[index])) return;
+  event.result = { ...event.result, content: replaced };
 }
 
 async function hookForProviders(

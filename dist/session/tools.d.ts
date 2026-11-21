@@ -16,6 +16,7 @@ type ToolEnd = {
     status: "completed" | "error";
     result?: ToolResultLike;
 };
+export declare function isFreePiSession(deps: Deps, sessionID: string): boolean;
 export declare function recordToolStart(deps: Deps, sessionID: string, id: string): void;
 export declare function recordToolEnd(deps: Deps, sessionID: string, end: ToolEnd): void;
 export declare function recordCompaction(deps: Deps, sessionID: string, droppedMessages: number): void;

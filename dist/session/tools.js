@@ -11,7 +11,7 @@ import { trimMap } from "../utils/async.js";
 const ID_PATTERN = /^[\w.:-]{1,100}$/;
 const MAX_ENTRY_LENGTH = 150;
 const MAX_STARTED = 200;
-function isFreePiSession(deps, sessionID) {
+export function isFreePiSession(deps, sessionID) {
     if (deps.state.freePiSessions.has(sessionID))
         return true;
     const tracked = deps.state.trackedModels.get(sessionID);

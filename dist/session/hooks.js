@@ -12,7 +12,7 @@ import { rememberReplayBody, replayConcurrentResponse, } from "./replay.js";
 import { localTitle } from "./title.js";
 import { rememberFreePiSession } from "./track.js";
 import { markWireSessionDirty, rotateWireSessionID, takeWireSessionDirty, wireSessionID, } from "./wire.js";
-import { recordCompaction, recordToolEnd, recordToolStart, toolHeaders, } from "./tools.js";
+import { isFreePiSession, recordCompaction, recordToolEnd, recordToolStart, toolHeaders, } from "./tools.js";
 import { rememberTrackedModel } from "./usage.js";
 const PENDING_LIMIT = 400;
 /** Each agent gets its own ad turn, so a subagent never reuses the parent's. */
@@ -246,7 +246,37 @@ async function registerToolHooks(ctx, deps, registrations) {
             status: event.status,
             ...(event.status === "completed" ? { result: event.result } : {}),
         });
+        replaceUnsupportedImages(deps, event);
     }));
+}
+/**
+ * free-pi only accepts text, like the provider CLI. OpenCode already swaps
+ * media for this notice when it builds a request for a text-only model, but
+ * doing it when the tool settles keeps the base64 image out of the session
+ * (and out of compaction) instead of storing hundreds of KB per read.
+ */
+function replaceUnsupportedImages(deps, event) {
+    if (event.status !== "completed")
+        return;
+    if (!isFreePiSession(deps, event.sessionID))
+        return;
+    const content = event.result?.content;
+    if (!Array.isArray(content))
+        return;
+    const replaced = content.map((part) => {
+        if (part?.type !== "file" || typeof part.mime !== "string")
+            return part;
+        if (!part.mime.toLowerCase().startsWith("image/"))
+            return part;
+        const name = typeof part.name === "string" ? part.name : part.mime;
+        return {
+            type: "text",
+            text: `ERROR: Cannot read "${name}" (this model does not support image input). Inform the user.`,
+        };
+    });
+    if (replaced.every((part, index) => part === content[index]))
+        return;
+    event.result = { ...event.result, content: replaced };
 }
 async function hookForProviders(ctx, name, callback, registrations) {
     for (const providerID of [PROVIDER_ID, DEFENSE_PROVIDER_ID]) {
