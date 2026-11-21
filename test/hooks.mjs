@@ -410,7 +410,7 @@ try {
     messageID: "msg_tool",
     id: "call_3",
     tool: "read",
-    input: {},
+    input: { path: "captures/photo.jpg" },
     status: "completed",
     result: {
       content: [
@@ -429,7 +429,7 @@ try {
     { type: "text", text: "Image read successfully" },
     {
       type: "text",
-      text: 'ERROR: Cannot read "photo.jpg" (this model does not support image input). Inform the user.',
+      text: 'ERROR: Cannot read "photo.jpg" (free-pi models take text only). If you need its content, call look_at_image with path "captures/photo.jpg" and a specific question.',
     },
   ]);
 

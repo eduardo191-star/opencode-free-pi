@@ -269,9 +269,10 @@ function replaceUnsupportedImages(deps, event) {
         if (!part.mime.toLowerCase().startsWith("image/"))
             return part;
         const name = typeof part.name === "string" ? part.name : part.mime;
+        const requested = typeof event.input?.path === "string" ? event.input.path : name;
         return {
             type: "text",
-            text: `ERROR: Cannot read "${name}" (this model does not support image input). Inform the user.`,
+            text: `ERROR: Cannot read "${name}" (free-pi models take text only). If you need its content, call look_at_image with path "${requested}" and a specific question.`,
         };
     });
     if (replaced.every((part, index) => part === content[index]))

@@ -79,13 +79,13 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   créditos, sin pedir un anuncio y sin dejar la sesión atascada en
   «New session».
 - **Solo texto, como el CLI**: los modelos no anuncian entrada de imágenes.
-  El CLI las trata fuera de la conversación (sus herramientas de visión e
-  imagen), y enviarlas como partes `image_url` incrusta cada imagen leída
-  (cientos de KB) en la petición, desborda la ventana de 200k y gasta la
-  cuota diaria en tokens de imagen. OpenCode sustituye las imágenes por un
-  aviso de que el modelo no acepta esa entrada, y el plugin aplica el mismo
-  aviso al terminar la herramienta para que el base64 no quede guardado en la
-  sesión.
+  El CLI las trata fuera de la conversación (su herramienta `look_at_image`),
+  y enviarlas como partes `image_url` incrusta cada imagen leída (cientos de
+  KB) en la petición, desborda la ventana de 200k y gasta la cuota diaria en
+  tokens de imagen. OpenCode sustituye las imágenes por un aviso, y el plugin
+  aplica el mismo aviso al terminar la herramienta para que el base64 no quede
+  guardado en la sesión; después el modelo puede usar `look_at_image` para
+  consultar la imagen sin meterla en el contexto.
 - **Subagentes identificados**: las sesiones hijas envían
   `x-freepi-subagent: 1`, igual que los proveedores que el CLI crea para sus
   subagentes.
@@ -120,8 +120,26 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   vez en el log del plugin.
 - Compatible con rutas, credenciales y navegador de cada sistema operativo.
 
-No incluye herramientas personalizadas. Usa las herramientas integradas de
-OpenCode.
+## Lectura de imágenes
+
+Los modelos siguen siendo solo texto, igual que en el CLI. Para mirar una
+captura de pantalla o cualquier imagen del proyecto, el modelo llama a la
+herramienta `look_at_image` con una ruta y una pregunta concreta. El plugin:
+
+- Solo lee archivos dentro de la carpeta del proyecto (incluidos enlaces
+  simbólicos resueltos).
+- Acepta PNG, JPEG y WebP.
+- Detecta el tamaño y reduce automáticamente las imágenes que superan los
+  2000 px o los 5 MB, probando PNG y varias calidades JPEG con Photon, para no
+  enviar base64 enorme ni gastar cuota de más.
+- Envía la imagen a `/tools/vision` y devuelve la respuesta del modelo de
+  visión como texto.
+
+Cada llamada consume parte del allowance diario del usuario, como en el CLI.
+La herramienta solo se ejecuta en sesiones de free-pi; en otros proveedores
+responde que no está disponible. Si el modelo intenta leer una imagen con
+`read`, el plugin sustituye el base64 por un aviso que le indica usar
+`look_at_image` con la misma ruta.
 
 ## Cabeceras enviadas
 

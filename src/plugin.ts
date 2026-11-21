@@ -23,6 +23,7 @@ import { subscribeEvents } from "./session/events.js";
 import { registerSessionHooks } from "./session/hooks.js";
 import { cancelAllFinalizeTimers } from "./session/track.js";
 import { createRuntimeState } from "./state.js";
+import { registerVisionTool } from "./tools/vision.js";
 import { settle } from "./utils/async.js";
 
 function activeCredentialResolver(ctx: Plugin.Context) {
@@ -111,6 +112,11 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
   });
 
   const registrations = await registerSessionHooks(ctx, deps);
+  try {
+    registrations.push(await registerVisionTool(ctx, deps));
+  } catch (error) {
+    log.warn("Could not register the look_at_image tool", error);
+  }
   const abort = new AbortController();
   const eventTask = subscribeEvents(ctx, deps, abort.signal);
 
