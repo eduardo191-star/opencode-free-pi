@@ -7,6 +7,7 @@ import {
   AD_REQUEST_TIMEOUT_MS,
 } from "../constants.js";
 import type { Deps } from "../deps.js";
+import { wireSessionID } from "../session/wire.js";
 import type { AdTurn } from "../types.js";
 import { trimMap } from "../utils/async.js";
 import { adClientHeaders } from "../utils/device.js";
@@ -73,9 +74,12 @@ export async function fetchAdAndPostImpression(
   turn: AdTurn,
 ): Promise<void> {
   try {
+    // The ad must ride on the same wire id as the model request; the server
+    // ties the impression to that session (the CLI sends one id for both).
+    const wireID = wireSessionID(deps, sessionId);
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
-      "x-session-id": sessionId,
+      "x-session-id": wireID,
       "x-client-version": deps.state.latestClientVersion,
       "x-turn-id": turn.turnId,
       "x-ad-trigger": "user_message",
@@ -89,7 +93,7 @@ export async function fetchAdAndPostImpression(
     if (!response?.ok || response.status === 204) return;
     const ad = await readJson(response);
     if (!ad) return;
-    await postAdImpression(deps, token, sessionId, ad);
+    await postAdImpression(deps, token, wireID, ad);
   } catch {}
 }
 

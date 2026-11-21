@@ -163,7 +163,7 @@ try {
   assert.ok(adCall, "an ad is requested for the turn");
   const adHeaders = adCall.headers;
   assert.equal(adHeaders["x-turn-id"], primary.headers["x-turn-id"]);
-  assert.equal(adHeaders["x-session-id"], "ses_parent");
+  assert.equal(adHeaders["x-session-id"], primary.headers["x-session-id"]);
   assert.equal(adHeaders["x-ad-trigger"], "user_message");
   assert.equal(adHeaders.authorization, "Bearer test-token");
   const adContext = JSON.parse(
@@ -204,7 +204,10 @@ try {
     "the subagent requests its own ad",
   );
   assert.equal(childAds.at(-1).headers["x-turn-id"], child.headers["x-turn-id"]);
-  assert.equal(childAds.at(-1).headers["x-session-id"], "ses_parent");
+  assert.equal(
+    childAds.at(-1).headers["x-session-id"],
+    child.headers["x-session-id"],
+  );
   const childContext = JSON.parse(
     Buffer.from(childAds.at(-1).headers["x-ad-context"], "base64url").toString(
       "utf8",

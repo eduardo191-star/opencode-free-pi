@@ -1,5 +1,6 @@
 /** Fetches an ad for a turn and records its impression. */
 import { AD_CONTEXT_HEADER, AD_IMPRESSION_LIMIT, AD_IMPRESSION_TIMEOUT_MS, AD_REQUEST_TIMEOUT_MS, } from "../constants.js";
+import { wireSessionID } from "../session/wire.js";
 import { trimMap } from "../utils/async.js";
 import { adClientHeaders } from "../utils/device.js";
 import { readJson } from "../utils/json.js";
@@ -55,9 +56,12 @@ export function postAdImpression(deps, token, sessionId, ad) {
 }
 export async function fetchAdAndPostImpression(deps, token, sessionId, turn) {
     try {
+        // The ad must ride on the same wire id as the model request; the server
+        // ties the impression to that session (the CLI sends one id for both).
+        const wireID = wireSessionID(deps, sessionId);
         const headers = {
             authorization: `Bearer ${token}`,
-            "x-session-id": sessionId,
+            "x-session-id": wireID,
             "x-client-version": deps.state.latestClientVersion,
             "x-turn-id": turn.turnId,
             "x-ad-trigger": "user_message",
@@ -73,7 +77,7 @@ export async function fetchAdAndPostImpression(deps, token, sessionId, turn) {
         const ad = await readJson(response);
         if (!ad)
             return;
-        await postAdImpression(deps, token, sessionId, ad);
+        await postAdImpression(deps, token, wireID, ad);
     }
     catch { }
 }
