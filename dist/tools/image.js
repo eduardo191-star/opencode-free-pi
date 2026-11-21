@@ -12,9 +12,14 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 /** Refuse to read absurd files before decoding them in memory. */
 const MAX_SOURCE_BYTES = 80 * 1024 * 1024;
-/** pi's attachment limit: 2000 x 2000 is enough for screenshots and UI QA. */
-const MAX_DIMENSION = 2_000;
-const JPEG_QUALITIES = [80, 70, 55, 40];
+/**
+ * Only images above the provider's 5 MB limit are re-encoded. The CLI sends
+ * full-resolution files, and more pixels help OCR; the first JPEG quality that
+ * fits is kept instead of forcing an aggressive downscale.
+ */
+const JPEG_QUALITIES = [92, 85, 75, 62, 50];
+/** Refuse to decode absurd canvases that could exhaust memory. */
+const MAX_DECODE_DIMENSION = 8_000;
 const OUTSIDE = "look_at_image only reads images inside the project folder.";
 let photonPromise;
 /** Loads Photon lazily so the plugin startup does not pay for the WASM module. */
@@ -104,6 +109,92 @@ export function loadImage(cwd, path) {
             closeSync(fd);
     }
 }
+function pngSize(bytes) {
+    if (bytes.length < 24 || bytes.toString("latin1", 12, 16) !== "IHDR") {
+        return undefined;
+    }
+    const width = bytes.readUInt32BE(16);
+    const height = bytes.readUInt32BE(20);
+    return width > 0 && height > 0 ? { width, height } : undefined;
+}
+/** Walks the JPEG markers up to the first Start Of Frame segment. */
+function jpegSize(bytes) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+        if (bytes[offset] !== 0xff) {
+            offset += 1;
+            continue;
+        }
+        const marker = bytes[offset + 1];
+        if (marker === 0xff) {
+            offset += 1;
+            continue;
+        }
+        if (marker === 0xd8 ||
+            marker === 0xd9 ||
+            (marker >= 0xd0 && marker <= 0xd7)) {
+            offset += 2;
+            continue;
+        }
+        const length = bytes.readUInt16BE(offset + 2);
+        if (length < 2)
+            return undefined;
+        const sof = (marker >= 0xc0 && marker <= 0xc3) ||
+            (marker >= 0xc5 && marker <= 0xc7) ||
+            (marker >= 0xc9 && marker <= 0xcb) ||
+            (marker >= 0xcd && marker <= 0xcf);
+        if (sof) {
+            if (offset + 9 > bytes.length)
+                return undefined;
+            const height = bytes.readUInt16BE(offset + 5);
+            const width = bytes.readUInt16BE(offset + 7);
+            return width > 0 && height > 0 ? { width, height } : undefined;
+        }
+        offset += 2 + length;
+    }
+    return undefined;
+}
+function webpSize(bytes) {
+    if (bytes.length < 30)
+        return undefined;
+    const chunk = bytes.toString("latin1", 12, 16);
+    if (chunk === "VP8X") {
+        const width = 1 + (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16));
+        const height = 1 + (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16));
+        return { width, height };
+    }
+    if (chunk === "VP8 ") {
+        if (bytes[23] !== 0x9d ||
+            bytes[24] !== 0x01 ||
+            bytes[25] !== 0x2a) {
+            return undefined;
+        }
+        const width = bytes.readUInt16LE(26) & 0x3fff;
+        const height = bytes.readUInt16LE(28) & 0x3fff;
+        return width > 0 && height > 0 ? { width, height } : undefined;
+    }
+    if (chunk === "VP8L") {
+        if (bytes[20] !== 0x2f)
+            return undefined;
+        const bits = bytes.readUInt32LE(21);
+        return {
+            width: (bits & 0x3fff) + 1,
+            height: ((bits >>> 14) & 0x3fff) + 1,
+        };
+    }
+    return undefined;
+}
+/**
+ * Reads dimensions from the file header. This avoids decoding typical images
+ * with WASM just to decide whether they need to be resized.
+ */
+export function imageSize(bytes, mime) {
+    if (mime === "image/png")
+        return pngSize(bytes);
+    if (mime === "image/jpeg")
+        return jpegSize(bytes);
+    return webpSize(bytes);
+}
 function unchanged(bytes, mime, width, height) {
     return {
         ok: true,
@@ -118,52 +209,61 @@ function unchanged(bytes, mime, width, height) {
         resized: false,
     };
 }
+function candidate(bytes, mime) {
+    return { data: bytes.toString("base64"), mime, bytes: bytes.length };
+}
 /**
- * Re-encodes the image at `width` x `height`, trying PNG and several JPEG
- * qualities, and returns the smallest candidate under the size limit.
+ * Re-encodes the image at `width` x `height`. It keeps the source format when
+ * possible and stops at the first JPEG quality that fits, so one call usually
+ * costs a single encode instead of five.
  */
 function encodeCandidate(photon, image, width, height, preferred) {
     const resized = photon.resize(image, width, height, photon.SamplingFilter.Lanczos3);
     try {
-        const png = Buffer.from(resized.get_bytes());
-        const candidates = [
-            { data: png.toString("base64"), mime: "image/png", bytes: png.length },
-        ];
+        // Keep PNG screenshots crisp: JPEG artifacts blur UI text and transparency,
+        // and the vision model charges by pixels, not by encoded bytes.
+        if (preferred === "image/png") {
+            const png = Buffer.from(resized.get_bytes());
+            if (png.length <= MAX_IMAGE_BYTES)
+                return candidate(png, "image/png");
+        }
+        if (preferred === "image/webp") {
+            try {
+                const webp = Buffer.from(resized.get_bytes_webp());
+                if (webp.length <= MAX_IMAGE_BYTES)
+                    return candidate(webp, "image/webp");
+            }
+            catch {
+                // Older Photon builds may not expose WebP encoding.
+            }
+        }
         for (const quality of JPEG_QUALITIES) {
             const jpeg = Buffer.from(resized.get_bytes_jpeg(quality));
-            candidates.push({
-                data: jpeg.toString("base64"),
-                mime: "image/jpeg",
-                bytes: jpeg.length,
-            });
+            if (jpeg.length <= MAX_IMAGE_BYTES)
+                return candidate(jpeg, "image/jpeg");
         }
-        const usable = candidates.filter((candidate) => candidate.bytes <= MAX_IMAGE_BYTES);
-        if (usable.length === 0)
-            return undefined;
-        // Keep PNG for PNG screenshots as long as it fits: JPEG artifacts blur UI
-        // text and transparency, and the vision model charges by pixels, not bytes.
-        if (preferred === "image/png") {
-            const pngCandidate = usable.find((candidate) => candidate.mime === "image/png");
-            if (pngCandidate)
-                return pngCandidate;
-        }
-        return usable.sort((a, b) => a.bytes - b.bytes)[0];
+        return undefined;
     }
     finally {
         resized.free();
     }
 }
 /**
- * Decodes the image and downscales it when it exceeds 2000 px or 5 MB.
+ * Sends the file untouched while it fits the provider's 5 MB limit. Only larger
+ * files are decoded, and then kept at the highest resolution/quality that fits.
  *
  * Photon is optional: if its WASM module cannot load, images that already fit
  * are still sent unchanged, while oversized ones fail with a clear message.
  */
 export async function prepareImage(bytes, mime, name) {
+    // The normal path never touches WASM, so screenshots and phone photos under
+    // 5 MB keep their original resolution and add no local processing latency.
+    const size = imageSize(bytes, mime);
+    if (bytes.length <= MAX_IMAGE_BYTES) {
+        return unchanged(bytes, mime, size?.width ?? 0, size?.height ?? 0);
+    }
     const photo = await loadPhoton();
     if (!photo) {
-        if (bytes.length <= MAX_IMAGE_BYTES)
-            return unchanged(bytes, mime, 0, 0);
         return {
             ok: false,
             text: `${name} is larger than 5 MB and image resizing is unavailable in this OpenCode runtime. Resize it first.`,
@@ -174,8 +274,6 @@ export async function prepareImage(bytes, mime, name) {
         image = photo.PhotonImage.new_from_byteslice(new Uint8Array(bytes));
     }
     catch {
-        if (bytes.length <= MAX_IMAGE_BYTES)
-            return unchanged(bytes, mime, 0, 0);
         return {
             ok: false,
             text: `${name} could not be decoded, so it cannot be reduced below 5 MB.`,
@@ -184,22 +282,13 @@ export async function prepareImage(bytes, mime, name) {
     try {
         const originalWidth = image.get_width();
         const originalHeight = image.get_height();
-        if (originalWidth <= MAX_DIMENSION &&
-            originalHeight <= MAX_DIMENSION &&
-            bytes.length <= MAX_IMAGE_BYTES) {
-            return unchanged(bytes, mime, originalWidth, originalHeight);
-        }
-        let width = originalWidth;
-        let height = originalHeight;
-        if (width > MAX_DIMENSION) {
-            height = Math.max(1, Math.round((height * MAX_DIMENSION) / width));
-            width = MAX_DIMENSION;
-        }
-        if (height > MAX_DIMENSION) {
-            width = Math.max(1, Math.round((width * MAX_DIMENSION) / height));
-            height = MAX_DIMENSION;
-        }
+        const longest = Math.max(originalWidth, originalHeight);
+        let scale = longest > MAX_DECODE_DIMENSION
+            ? MAX_DECODE_DIMENSION / longest
+            : 1;
         while (true) {
+            const width = Math.max(1, Math.round(originalWidth * scale));
+            const height = Math.max(1, Math.round(originalHeight * scale));
             const best = encodeCandidate(photo, image, width, height, mime);
             if (best) {
                 return {
@@ -217,12 +306,7 @@ export async function prepareImage(bytes, mime, name) {
             }
             if (width === 1 && height === 1)
                 break;
-            const nextWidth = width === 1 ? 1 : Math.max(1, Math.floor(width * 0.75));
-            const nextHeight = height === 1 ? 1 : Math.max(1, Math.floor(height * 0.75));
-            if (nextWidth === width && nextHeight === height)
-                break;
-            width = nextWidth;
-            height = nextHeight;
+            scale *= 0.85;
         }
         return {
             ok: false,

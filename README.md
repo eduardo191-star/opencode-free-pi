@@ -129,9 +129,10 @@ herramienta `look_at_image` con una ruta y una pregunta concreta. El plugin:
 - Solo lee archivos dentro de la carpeta del proyecto (incluidos enlaces
   simbólicos resueltos).
 - Acepta PNG, JPEG y WebP.
-- Detecta el tamaño y reduce automáticamente las imágenes que superan los
-  2000 px o los 5 MB, probando PNG y varias calidades JPEG con Photon, para no
-  enviar base64 enorme ni gastar cuota de más.
+- Lee las dimensiones de la cabecera y envía el archivo intacto mientras no
+  supere los 5 MB, conservando la resolución y la calidad originales. Solo las
+  imágenes mayores se recodifican con Photon, manteniendo el mayor tamaño y la
+  mejor calidad JPEG que quepan en el límite.
 - Envía la imagen a `/tools/vision` y devuelve la respuesta del modelo de
   visión como texto.
 

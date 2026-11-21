@@ -65,6 +65,7 @@ async function executeVision(ctx, deps, raw, context) {
     if (!isFreePiSession(deps, context.sessionID)) {
         return fail("look_at_image is only available in free-pi sessions.");
     }
+    const startedAt = Date.now();
     const image = loadImage(ctx.location.directory, path);
     if (!image.ok)
         return fail(image.text);
@@ -113,10 +114,21 @@ async function executeVision(ctx, deps, raw, context) {
         if (typeof data?.text !== "string" || data.text === "") {
             return fail("The vision model returned no answer.");
         }
+        const elapsed = Date.now() - startedAt;
+        deps.log.info("look_at_image answered", {
+            path,
+            ms: elapsed,
+            resized: prepared.resized,
+            bytes: prepared.bytes,
+            size: `${prepared.width}x${prepared.height}`,
+            mime: prepared.mime,
+            model: data.model,
+        });
         return done(questionText(path, data.text), {
             ok: true,
             ...(typeof data.cost_usd === "number" ? { cost_usd: data.cost_usd } : {}),
             ...(typeof data.model === "string" ? { model: data.model } : {}),
+            elapsed_ms: elapsed,
         });
     }
     catch (error) {

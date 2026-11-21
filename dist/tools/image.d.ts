@@ -41,8 +41,18 @@ export declare function detectMime(bytes: Uint8Array): VisionMime | undefined;
  * so a symlink cannot escape the project folder.
  */
 export declare function loadImage(cwd: string, path: string): LoadedImage;
+export type ImageSize = {
+    readonly width: number;
+    readonly height: number;
+};
 /**
- * Decodes the image and downscales it when it exceeds 2000 px or 5 MB.
+ * Reads dimensions from the file header. This avoids decoding typical images
+ * with WASM just to decide whether they need to be resized.
+ */
+export declare function imageSize(bytes: Buffer, mime: VisionMime): ImageSize | undefined;
+/**
+ * Sends the file untouched while it fits the provider's 5 MB limit. Only larger
+ * files are decoded, and then kept at the highest resolution/quality that fits.
  *
  * Photon is optional: if its WASM module cannot load, images that already fit
  * are still sent unchanged, while oversized ones fail with a clear message.
