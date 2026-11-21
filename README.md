@@ -135,6 +135,10 @@ herramienta `look_at_image` con una ruta y una pregunta concreta. El plugin:
   mejor calidad JPEG que quepan en el límite.
 - Envía la imagen a `/tools/vision` y devuelve la respuesta del modelo de
   visión como texto.
+- Serializa las preguntas entre sesiones y procesos de OpenCode mediante un
+  bloqueo en la caché del plugin. Si el servidor responde `rate_limited` porque
+  otra sesión o el CLI está consultando una imagen, reintenta automáticamente
+  respetando `Retry-After` en vez de hacer fallar el turno.
 
 Cada llamada consume parte del allowance diario del usuario, como en el CLI.
 La herramienta solo se ejecuta en sesiones de free-pi; en otros proveedores

@@ -12,12 +12,17 @@ import { resolveToken } from "../auth/token.js";
 import type { Deps } from "../deps.js";
 import { isFreePiSession } from "../session/tools.js";
 import { resolveBaseUrl } from "../utils/urls.js";
-import { loadImage, prepareImage } from "./image.js";
+import { loadImage, prepareImage, type VisionMime } from "./image.js";
+import { withVisionSlot } from "./vision-queue.js";
 
 type Registration = { dispose: () => Promise<void> };
 
 const TOOL_NAME = "look_at_image";
 const TIMEOUT_MS = 90_000;
+/** Waits used when the server says another image question is still running. */
+const RETRY_DELAYS_MS = [2_000, 6_000, 12_000] as const;
+const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
+const MAX_RETRY_DELAY_MS = 30_000;
 
 const INPUT = {
   type: "object",
@@ -78,6 +83,152 @@ function questionText(path: string, answer: string): string {
 ${answer}`;
 }
 
+type VisionAnswer = {
+  readonly text: string;
+  readonly model?: string;
+  readonly cost_usd?: number;
+};
+
+type VisionAttempt =
+  | { readonly ok: true; readonly answer: VisionAnswer; readonly attempts: number }
+  | { readonly ok: false; readonly text: string };
+
+function retryDelayMs(response: Response, body: any, attempt: number): number {
+  const header = Number(response.headers.get("retry-after"));
+  if (Number.isFinite(header) && header > 0) {
+    return Math.min(Math.ceil(header * 1_000), MAX_RETRY_DELAY_MS);
+  }
+  const seconds = Number(body?.retry_after_seconds);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.min(Math.ceil(seconds * 1_000), MAX_RETRY_DELAY_MS);
+  }
+  return RETRY_DELAYS_MS[
+    Math.min(attempt, RETRY_DELAYS_MS.length - 1)
+  ]!;
+}
+
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new Error("aborted"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * POSTs one image and retries when free-pi reports that another image question
+ * is still running. The plugin already queues local calls; retries cover CLI
+ * users, other machines and the server's short cooldown between questions.
+ */
+async function askVision(
+  deps: Deps,
+  token: string,
+  data: string,
+  mime: VisionMime,
+  question: string,
+  signal: AbortSignal,
+): Promise<VisionAttempt> {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    const requestSignal = signal
+      ? AbortSignal.any([signal, timeout])
+      : timeout;
+
+    let response: Response;
+    try {
+      response = await fetch(`${resolveBaseUrl()}/tools/vision`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          image_b64: data,
+          media_type: mime,
+          question,
+        }),
+        signal: requestSignal,
+      });
+    } catch (error) {
+      if (signal.aborted) {
+        return { ok: false, text: "The vision request was cancelled." };
+      }
+      if (error instanceof Error && error.name === "TimeoutError") {
+        return {
+          ok: false,
+          text: "The vision request timed out after 90 seconds.",
+        };
+      }
+      if (error instanceof Error && error.name === "AbortError") {
+        return { ok: false, text: "The vision request was cancelled." };
+      }
+      return { ok: false, text: "The vision request failed." };
+    }
+
+    if (response.ok) {
+      const body = (await response.json().catch(() => undefined)) as any;
+      if (typeof body?.text !== "string" || body.text === "") {
+        return { ok: false, text: "The vision model returned no answer." };
+      }
+      return {
+        ok: true,
+        attempts: attempt + 1,
+        answer: {
+          text: body.text,
+          ...(typeof body.cost_usd === "number"
+            ? { cost_usd: body.cost_usd }
+            : {}),
+          ...(typeof body.model === "string" ? { model: body.model } : {}),
+        },
+      };
+    }
+
+    const body = (await response.json().catch(() => ({}))) as any;
+    const code = String(body?.error?.code ?? body?.code ?? "");
+    if (code === "rate_limited") {
+      if (attempt + 1 >= MAX_ATTEMPTS) {
+        return {
+          ok: false,
+          text: "Another image question is still running. Wait a moment and call look_at_image again.",
+        };
+      }
+      const delay = retryDelayMs(response, body, attempt);
+      deps.log.info("look_at_image is waiting for the vision slot", {
+        attempt: attempt + 1,
+        delayMs: delay,
+        status: response.status,
+      });
+      try {
+        await wait(delay, signal);
+      } catch {
+        return { ok: false, text: "The vision request was cancelled." };
+      }
+      continue;
+    }
+
+    const mapped = visionErrorText(code);
+    return {
+      ok: false,
+      text: mapped ?? `The vision request failed (HTTP ${response.status}).`,
+    };
+  }
+
+  return {
+    ok: false,
+    text: "Another image question is still running. Wait a moment and call look_at_image again.",
+  };
+}
+
 async function executeVision(
   ctx: Plugin.Context,
   deps: Deps,
@@ -120,62 +271,35 @@ async function executeVision(
     );
   }
 
-  const timeout = AbortSignal.timeout(TIMEOUT_MS);
-  const signal = context.signal
-    ? AbortSignal.any([context.signal, timeout])
-    : timeout;
-
-  try {
-    const response = await fetch(`${resolveBaseUrl()}/tools/vision`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        image_b64: prepared.data,
-        media_type: prepared.mime,
-        question,
-      }),
-      signal,
-    });
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => ({}))) as any;
-      const code = body?.error?.code ?? body?.code ?? "";
-      const mapped = visionErrorText(String(code));
-      return fail(mapped ?? `The vision request failed (HTTP ${response.status}).`);
-    }
-
-    const data = (await response.json()) as any;
-    if (typeof data?.text !== "string" || data.text === "") {
-      return fail("The vision model returned no answer.");
-    }
-    const elapsed = Date.now() - startedAt;
-    deps.log.info("look_at_image answered", {
-      path,
-      ms: elapsed,
-      resized: prepared.resized,
-      bytes: prepared.bytes,
-      size: `${prepared.width}x${prepared.height}`,
-      mime: prepared.mime,
-      model: data.model,
-    });
-    return done(questionText(path, data.text), {
-      ok: true,
-      ...(typeof data.cost_usd === "number" ? { cost_usd: data.cost_usd } : {}),
-      ...(typeof data.model === "string" ? { model: data.model } : {}),
-      elapsed_ms: elapsed,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      return fail("The vision request timed out after 90 seconds.");
-    }
-    if (error instanceof Error && error.name === "AbortError") {
-      return fail("The vision request was cancelled.");
-    }
-    return fail("The vision request failed.");
+  const queued = await withVisionSlot(deps.log, () =>
+    askVision(deps, token, prepared.data, prepared.mime, question, context.signal),
+  );
+  if (!queued.ok) {
+    return fail(
+      "Another image question is still running. Wait a moment and call look_at_image again.",
+    );
   }
+  if (!queued.value.ok) return fail(queued.value.text);
+
+  const { answer, attempts } = queued.value;
+  const elapsed = Date.now() - startedAt;
+  deps.log.info("look_at_image answered", {
+    path,
+    ms: elapsed,
+    attempts,
+    resized: prepared.resized,
+    bytes: prepared.bytes,
+    size: `${prepared.width}x${prepared.height}`,
+    mime: prepared.mime,
+    model: answer.model,
+  });
+  return done(questionText(path, answer.text), {
+    ok: true,
+    ...(answer.cost_usd !== undefined ? { cost_usd: answer.cost_usd } : {}),
+    ...(answer.model !== undefined ? { model: answer.model } : {}),
+    elapsed_ms: elapsed,
+    attempts,
+  });
 }
 
 /**

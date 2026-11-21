@@ -277,6 +277,61 @@ try {
   assert.equal(capped.metadata.ok, false);
   assert.match(capped.content[0].text, /free allowance for today/);
 
+  // A transient `rate_limited` is retried instead of failing the turn.
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response(
+        JSON.stringify({ code: "rate_limited", retry_after_seconds: 0.05 }),
+        { status: 429, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({ text: "Retry worked.", model: "vision-test" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  const retried = await registered.execute(
+    { path: "shot.png", question: "Anything now?" },
+    { sessionID: "ses_vision", signal: new AbortController().signal },
+  );
+  assert.equal(retried.metadata.ok, true);
+  assert.equal(attempts, 2);
+  assert.equal(retried.metadata.attempts, 2);
+  assert.match(retried.content[0].text, /Retry worked/);
+  assert.ok(
+    infos.some((entry) => /waiting for the vision slot/.test(entry.message)),
+    "the retry is logged",
+  );
+
+  // Concurrent questions are serialized: free-pi accepts one at a time.
+  let active = 0;
+  let maxActive = 0;
+  globalThis.fetch = async () => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    active -= 1;
+    return new Response(JSON.stringify({ text: "Queued answer." }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const [first, second] = await Promise.all([
+    registered.execute(
+      { path: "shot.png", question: "First question" },
+      { sessionID: "ses_vision", signal: new AbortController().signal },
+    ),
+    registered.execute(
+      { path: "shot.png", question: "Second question" },
+      { sessionID: "ses_vision", signal: new AbortController().signal },
+    ),
+  ]);
+  assert.equal(first.metadata.ok, true);
+  assert.equal(second.metadata.ok, true);
+  assert.equal(maxActive, 1, "only one vision request is in flight");
+
   console.log("vision tests passed");
 } finally {
   globalThis.fetch = realFetch;
