@@ -1,6 +1,6 @@
 {
   "name": "@eduardo191labs/opencode-free-pi",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Ad-supported free-pi provider plugin for OpenCode on Windows, Linux, macOS and Termux",
   "type": "module",
   "main": "./dist/index.js",

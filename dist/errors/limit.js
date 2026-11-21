@@ -18,6 +18,19 @@ const LONG_LIMIT_CODES = new Set([
     "account_ceiling",
     "region_unavailable",
 ]);
+const CONTEXT_OVERFLOW_CODES = new Set([
+    "context_too_long",
+    "context_too_long_for_fallback",
+    "context_ceiling",
+]);
+/**
+ * OpenCode classifies HTTP 413 as `payload-too-large` before it looks at the
+ * message, so free-pi's `context_too_long` 413 never reaches the compaction
+ * recovery path. Rewriting it to a 400 whose message matches OpenCode's
+ * `prompt is too long` overflow pattern lets the runner compact and retry the
+ * turn instead of failing it with the raw server message.
+ */
+const CONTEXT_OVERFLOW_MESSAGE = "prompt is too long for this model's context window; run /compact or start a new session";
 function retryAfterSeconds(response) {
     const retryAfter = response.headers.get("retry-after");
     if (retryAfter) {
@@ -80,6 +93,60 @@ function friendlyBody(body, info) {
     catch {
         return body;
     }
+}
+function contextOverflowCode(body) {
+    try {
+        const data = JSON.parse(body);
+        const raw = data?.code ?? data?.error?.code ?? data?.limit;
+        if (typeof raw === "string" && CONTEXT_OVERFLOW_CODES.has(raw))
+            return raw;
+    }
+    catch { }
+    return undefined;
+}
+/**
+ * Returns a replacement response when `response` is a free-pi context overflow.
+ * The replacement is a 400 with a message OpenCode recognizes as context
+ * overflow, so the session runner compacts and retries instead of surfacing
+ * the fatal "conversation is too long" error.
+ */
+export async function rewriteContextOverflowResponse(response) {
+    if (response.status !== 413 &&
+        response.status !== 429 &&
+        response.status !== 400)
+        return undefined;
+    const body = await response
+        .clone()
+        .text()
+        .catch(() => "");
+    if (!body)
+        return undefined;
+    const code = contextOverflowCode(body);
+    if (!code)
+        return undefined;
+    const headers = new Headers(response.headers);
+    headers.delete("retry-after");
+    headers.delete("retry-after-ms");
+    headers.set("x-free-pi-original-status", String(response.status));
+    headers.set("x-free-pi-original-code", code);
+    let data;
+    try {
+        data = JSON.parse(body);
+    }
+    catch {
+        data = {};
+    }
+    if (data && typeof data === "object") {
+        data.message = CONTEXT_OVERFLOW_MESSAGE;
+        if (data.error && typeof data.error === "object") {
+            data.error.message = CONTEXT_OVERFLOW_MESSAGE;
+        }
+    }
+    return new Response(JSON.stringify(data), {
+        status: 400,
+        statusText: "Bad Request",
+        headers,
+    });
 }
 /**
  * Returns a replacement response when `response` is a 429 that represents a

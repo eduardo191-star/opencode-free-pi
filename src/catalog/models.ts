@@ -13,7 +13,7 @@ import type {
   ReasoningOption,
   RegistryCandidate,
 } from "../types.js";
-import { creditsToUsd, positiveNumber } from "../utils/numbers.js";
+import { positiveNumber } from "../utils/numbers.js";
 import { cleanText } from "../utils/text.js";
 
 export type VariantMap = Record<string, Record<string, unknown>>;
@@ -63,34 +63,14 @@ export function displayName(model: CatalogModel): string {
 }
 
 export function modelCost(
-  model: CatalogModel,
-  capability?: ModelsDevModel,
+  _model: CatalogModel,
+  _capability?: ModelsDevModel,
 ): ModelDefinition["cost"] {
-  const zero = { input: 0, output: 0, cache_read: 0, cache_write: 0 };
-  if (model.free === true) return zero;
-  const input =
-    creditsToUsd(model.input_credits_per_mtok) ||
-    positiveNumber(capability?.cost?.input) ||
-    0;
-  const output =
-    creditsToUsd(model.output_credits_per_mtok) ||
-    positiveNumber(capability?.cost?.output) ||
-    0;
-  if (input > 0 || output > 0) {
-    return {
-      input,
-      output,
-      cache_read:
-        creditsToUsd(model.cache_read_credits_per_mtok) ||
-        positiveNumber(capability?.cost?.cache_read) ||
-        input,
-      cache_write:
-        creditsToUsd(model.cache_write_credits_per_mtok) ||
-        positiveNumber(capability?.cost?.cache_write) ||
-        input,
-    };
-  }
-  return zero;
+  // free-pi bills in credits against a daily allowance; it does not charge
+  // per-token USD. The provider CLI registers every model with zero cost and
+  // shows the real usage through /usage, so publishing reseller prices here
+  // would only invent a cost the account never pays.
+  return { input: 0, output: 0, cache_read: 0, cache_write: 0 };
 }
 
 export function modelRegistryCandidates(
@@ -244,21 +224,31 @@ export function buildModels(
     const reasoning = model.reasoning ?? capability?.reasoning ?? true;
     const reasoningOptions =
       model.reasoning_options ?? capability?.reasoning_options;
-    const limitContext =
+    // free-pi enforces a 200k input window and 32k output cap on every model,
+    // regardless of what models.dev reports for the upstream provider. The
+    // provider CLI registers exactly these limits, so clamp to them here too:
+    // an advertised 1M window would let OpenCode grow a session past the
+    // server's real ceiling and fail with `context_too_long` instead of
+    // compacting.
+    const limitContext = Math.min(
       positiveNumber(
         model.context_window,
         model.contextWindow,
         model.limit?.context,
         capability?.limit?.context,
-      ) ?? CONTEXT_WINDOW;
-    const limitOutput =
+      ) ?? CONTEXT_WINDOW,
+      CONTEXT_WINDOW,
+    );
+    const limitOutput = Math.min(
       positiveNumber(
         model.max_tokens,
         model.maxTokens,
         model.max_output_tokens,
         model.limit?.output,
         capability?.limit?.output,
-      ) ?? MAX_OUTPUT_TOKENS;
+      ) ?? MAX_OUTPUT_TOKENS,
+      MAX_OUTPUT_TOKENS,
+    );
     result[model.id] = {
       id: model.id,
       name: displayName(model),

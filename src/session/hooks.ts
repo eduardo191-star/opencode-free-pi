@@ -13,7 +13,10 @@ import {
   PROVIDER_ID,
 } from "../constants.js";
 import type { Deps } from "../deps.js";
-import { rewriteLimitResponse } from "../errors/limit.js";
+import {
+  rewriteContextOverflowResponse,
+  rewriteLimitResponse,
+} from "../errors/limit.js";
 import { trimMap } from "../utils/async.js";
 import { rememberFreePiSession } from "./track.js";
 import { rememberTrackedModel } from "./usage.js";
@@ -184,6 +187,15 @@ export async function registerSessionHooks(
     ctx,
     "http.response",
     async (event: any) => {
+      // Context overflow has to be handled first: a 429 context ceiling must
+      // become a 400 overflow, not a friendly long-lived limit.
+      const overflow = await rewriteContextOverflowResponse(
+        event.response,
+      ).catch(() => undefined);
+      if (overflow) {
+        event.response = overflow;
+        return;
+      }
       const rewritten = await rewriteLimitResponse(event.response).catch(
         () => undefined,
       );

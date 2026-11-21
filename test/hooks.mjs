@@ -269,6 +269,62 @@ try {
     "429",
   );
 
+  // A context overflow is rewritten to the message OpenCode classifies as
+  // context-overflow, so the runner compacts and retries the turn.
+  const overflow = new Response(
+    JSON.stringify({
+      code: "context_too_long",
+      message: "this conversation is too long",
+      limit: "context_too_long",
+    }),
+    { status: 413, headers: { "content-type": "application/json" } },
+  );
+  const overflowEvent = await invoke("http.response", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    request: new Request("https://api.test/v1/chat/completions"),
+    response: overflow,
+  });
+  assert.equal(overflowEvent.response.status, 400);
+  assert.equal(
+    overflowEvent.response.headers.get("x-free-pi-original-status"),
+    "413",
+  );
+  assert.equal(
+    overflowEvent.response.headers.get("x-free-pi-original-code"),
+    "context_too_long",
+  );
+  const overflowBody = await overflowEvent.response.text();
+  assert.match(overflowBody, /prompt is too long/i);
+  assert.doesNotMatch(overflowBody, /conversation is too long/i);
+
+  // A 429 context ceiling is an overflow, not a long-lived rate limit, so it
+  // must be rewritten before the friendly 429 handler sees it.
+  const ceiling = new Response(
+    JSON.stringify({
+      code: "context_ceiling",
+      message: "this conversation is too large",
+      retry_after_seconds: 3600,
+    }),
+    { status: 429, headers: { "content-type": "application/json" } },
+  );
+  const ceilingEvent = await invoke("http.response", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    request: new Request("https://api.test/v1/chat/completions"),
+    response: ceiling,
+  });
+  assert.equal(ceilingEvent.response.status, 400);
+  assert.equal(
+    ceilingEvent.response.headers.get("x-free-pi-original-status"),
+    "429",
+  );
+  assert.match(await ceilingEvent.response.text(), /prompt is too long/i);
+
   // Usage tracking feeds the quota endpoint.
   deps.state.trackedModels.set("ses_parent", {
     providerID: "free-pi",

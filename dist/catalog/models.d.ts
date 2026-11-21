@@ -8,7 +8,7 @@ export declare function partitionModels(catalog: Catalog | undefined): {
     defense: CatalogModel[];
 };
 export declare function displayName(model: CatalogModel): string;
-export declare function modelCost(model: CatalogModel, capability?: ModelsDevModel): ModelDefinition["cost"];
+export declare function modelCost(_model: CatalogModel, _capability?: ModelsDevModel): ModelDefinition["cost"];
 export declare function modelRegistryCandidates(registry: ModelRegistry | undefined): RegistryCandidate[];
 export declare function modelCapability(model: CatalogModel, candidates: RegistryCandidate[]): ModelsDevModel | undefined;
 export declare function modelVariants(options: ReasoningOption[] | undefined, outputLimit: number): VariantMap;

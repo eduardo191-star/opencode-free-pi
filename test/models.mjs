@@ -52,7 +52,8 @@ assert.deepEqual(free.variants, {
   high: { reasoningEffort: "high" },
 });
 
-// Paid models convert credits to USD; cache prices default to the input price.
+// free-pi bills in credits, not per-token USD, so every model reports zero
+// cost just like the provider CLI's model registration.
 const paid = buildModels(
   [
     {
@@ -65,17 +66,16 @@ const paid = buildModels(
   [],
 )["paid-model"];
 assert.deepEqual(paid.cost, {
-  input: 2,
-  output: 8,
-  cache_read: 2,
-  cache_write: 2,
+  input: 0,
+  output: 0,
+  cache_read: 0,
+  cache_write: 0,
 });
 assert.deepEqual(paid.limit, {
   context: CONTEXT_WINDOW,
   output: MAX_OUTPUT_TOKENS,
 });
 
-// models.dev costs are the fallback when the catalog has no credits.
 const registryCost = buildModels(
   [{ id: "registry-cost", display_name: "Registry Cost" }],
   [
@@ -87,10 +87,30 @@ const registryCost = buildModels(
   ],
 )["registry-cost"];
 assert.deepEqual(registryCost.cost, {
-  input: 5,
-  output: 10,
-  cache_read: 1,
-  cache_write: 2,
+  input: 0,
+  output: 0,
+  cache_read: 0,
+  cache_write: 0,
+});
+
+// A models.dev window larger than free-pi's real ceiling is clamped, so
+// OpenCode compacts before the server rejects the request.
+const oversized = buildModels(
+  [{ id: "oversized", display_name: "Oversized" }],
+  [
+    {
+      providerID: "vendor",
+      modelID: "oversized",
+      model: {
+        name: "Oversized",
+        limit: { context: 1_048_576, output: 131_072 },
+      },
+    },
+  ],
+)["oversized"];
+assert.deepEqual(oversized.limit, {
+  context: CONTEXT_WINDOW,
+  output: MAX_OUTPUT_TOKENS,
 });
 
 // Variant shapes match the reasoning options.

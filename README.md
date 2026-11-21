@@ -66,6 +66,14 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - Catálogo en vivo de modelos **free-pi** y **free-pi-defense**.
 - Integración nativa de OpenCode V2 para credenciales OAuth, clave y entorno.
 - Cuota diaria, créditos premium y límites con mensajes claros.
+- **Límites reales de free-pi**: todos los modelos anuncian la ventana de
+  contexto de 200k y el límite de salida de 32k que aplica el CLI del
+  proveedor, aunque models.dev informe ventanas mayores para el modelo
+  upstream. Así OpenCode compacta antes de que el servidor rechace la
+  conversación.
+- **Compactación integrada**: los errores `context_too_long` de free-pi se
+  reescriben para que OpenCode los reconozca como desbordamiento de contexto y
+  ejecute `/compact` automáticamente en vez de terminar el turno.
 - Anuncios e impresiones asociados al turno correcto.
 - Cada agente y subagente usa su propio `x-session-id`, `x-turn-id` y contexto
   de anuncios; nunca reutiliza los del agente principal.
@@ -96,7 +104,15 @@ El plugin replica las cabeceras del plugin V1 de free-pi:
   `x-client-version` y, cuando aplica, `x-session-id`.
 
 Las respuestas `429` de límites largos se reescriben a un `400` con el mensaje
-amigable, igual que en el plugin V1.
+amigable, igual que en el plugin V1. Las respuestas `413` (o `429`/`400`) con
+código `context_too_long`, `context_too_long_for_fallback` o `context_ceiling`
+se reescriben a un `400` con el texto que OpenCode clasifica como
+desbordamiento de contexto, para que dispare la compactación automática.
+
+free-pi cobra en créditos contra una cuota diaria, no en USD por token. Por
+eso los modelos se registran con costo `0`, igual que el CLI del proveedor; el
+consumo real se consulta en `/me` y `/me/stats` y se refleja en los mensajes de
+cuota y límite.
 
 ## Rutas por plataforma
 
@@ -214,8 +230,8 @@ dist/                   build ESM y tipos
 scripts/postinstall.mjs registro en opencode.json
 test/smoke.mjs          prueba de humo del build
 test/registry.mjs       caché y tolerancia a fallos de models.dev
-test/models.mjs         capacidades, variantes, límites y costos
-test/hooks.mjs          hooks de sesión, anuncios y cuota
+test/models.mjs         capacidades, variantes, límites reales y costos
+test/hooks.mjs          hooks de sesión, anuncios, cuota y compactación
 ```
 
 ## Desinstalar
