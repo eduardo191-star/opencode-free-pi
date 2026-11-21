@@ -73,6 +73,10 @@ async function applyModelRequest(deps, event) {
     if (deps.state.costExperimentArm) {
         event.headers[COST_EXPERIMENT_HEADER] = deps.state.costExperimentArm;
     }
+    // Title requests are suppressed by the title hook, so an ad for them would be
+    // an impression the user never sees.
+    if (event.kind === "title")
+        return;
     const pending = deps.state.pendingAdTurns.get(pendingKeyOf(event.sessionID, agent, event.kind));
     const turn = pending ??
         (await resolveAdTurn(deps, {

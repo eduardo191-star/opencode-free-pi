@@ -214,6 +214,8 @@ dist/                   build ESM y tipos
 scripts/postinstall.mjs registro en opencode.json
 test/smoke.mjs          prueba de humo del build
 test/registry.mjs       caché y tolerancia a fallos de models.dev
+test/models.mjs         capacidades, variantes, límites y costos
+test/hooks.mjs          hooks de sesión, anuncios y cuota
 ```
 
 ## Desinstalar
