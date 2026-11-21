@@ -91,7 +91,13 @@ export async function replayConcurrentResponse(
           .text()
           .catch(() => undefined)
       : undefined);
-  if (!body) return;
+  if (!body) {
+    deps.log.warn(
+      "free-pi session busy but the request body was not available to replay",
+      { sessionID: event.sessionID },
+    );
+    return;
+  }
 
   let previous =
     request.headers.get("x-session-id") ??

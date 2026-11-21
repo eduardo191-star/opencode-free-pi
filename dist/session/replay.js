@@ -77,8 +77,10 @@ export async function replayConcurrentResponse(deps, event) {
                 .text()
                 .catch(() => undefined)
             : undefined);
-    if (!body)
+    if (!body) {
+        deps.log.warn("free-pi session busy but the request body was not available to replay", { sessionID: event.sessionID });
         return;
+    }
     let previous = request.headers.get("x-session-id") ??
         wireSessionID(deps, event.sessionID);
     for (let attempt = 1; attempt <= REPLAY_MAX_ATTEMPTS; attempt++) {
