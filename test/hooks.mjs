@@ -139,7 +139,7 @@ try {
     headers: {},
   });
   assert.equal(primary.headers.authorization, "Bearer test-token");
-  assert.equal(primary.headers["x-session-id"], "ses_parent");
+  assert.match(primary.headers["x-session-id"], /^ses_parent-r/);
   assert.equal(primary.headers["x-client-version"], "9.9.9");
   assert.equal(primary.headers["x-freepi-cost-exp"], "efficiency");
   assert.match(primary.headers["x-turn-id"], /^[0-9a-f-]{36}$/);

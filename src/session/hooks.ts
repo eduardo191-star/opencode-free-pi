@@ -162,6 +162,10 @@ async function applyModelRequest(deps: Deps, event: any): Promise<void> {
       "free-pi session ended mid-stream; continuing with a fresh session id",
       { sessionID: event.sessionID, from: previous, to: next },
     );
+  } else if (!deps.state.wireSessions.has(event.sessionID)) {
+    // First request in this process. A previous OpenCode run may have left the
+    // session's slot locked, so start from a fresh id instead of reopening it.
+    rotateWireSessionID(deps, event.sessionID);
   }
   const token = await resolveToken(deps);
   if (token) event.headers.authorization = `Bearer ${token}`;
