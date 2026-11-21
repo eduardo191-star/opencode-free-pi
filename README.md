@@ -78,10 +78,12 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   El plugin lo responde con la primera línea del primer mensaje, sin gastar
   créditos, sin pedir un anuncio y sin dejar la sesión atascada en
   «New session».
-- **Imágenes nativas**: los modelos aceptan imágenes pegadas o adjuntas.
-  El CLI las bloquea porque pi-ai no transporta imágenes, pero el endpoint de
-  chat de free-pi sí las acepta (verificado en vivo), así que OpenCode las
-  envía de forma nativa como partes `image_url`.
+- **Solo texto, como el CLI**: los modelos no anuncian entrada de imágenes.
+  El CLI las trata fuera de la conversación (sus herramientas de visión e
+  imagen), y enviarlas como partes `image_url` incrusta cada imagen leída
+  (cientos de KB) en la petición, desborda la ventana de 200k y gasta la
+  cuota diaria en tokens de imagen. OpenCode sustituye las imágenes por un
+  aviso de que el modelo no acepta esa entrada.
 - **Subagentes identificados**: las sesiones hijas envían
   `x-freepi-subagent: 1`, igual que los proveedores que el CLI crea para sus
   subagentes.
