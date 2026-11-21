@@ -157,8 +157,8 @@ assert.deepEqual(modelVariants(undefined, 8_192), {
 const [v2] = toV2Models("free-pi", { "free-model": free });
 assert.equal(v2.providerID, "free-pi");
 assert.equal(v2.capabilities.tools, false);
-// free-pi only accepts text, whatever models.dev reports upstream.
-assert.deepEqual(v2.capabilities.input, ["text"]);
+// free-pi accepts text and image input, whatever models.dev reports upstream.
+assert.deepEqual(v2.capabilities.input, ["text", "image"]);
 assert.deepEqual(v2.capabilities.output, ["text"]);
 assert.equal(v2.capabilities.temperature, false);
 assert.deepEqual(v2.settings, { reasoningEffort: "none" });

@@ -32,10 +32,11 @@ export function toV2Models(providerID: string, models: ModelMap): any[] {
       ...(model.family ? { family: model.family } : {}),
       capabilities: {
         tools: model.tool_call !== false,
-        // The provider CLI registers every free-pi model as text-only. An
-        // advertised image input would let OpenCode send media the server
-        // does not accept.
-        input: ["text"],
+        // The provider CLI registers every free-pi model as text-only because
+        // pi-ai cannot carry image parts, but the server's chat endpoint does
+        // accept OpenAI-style image_url parts (verified live), so OpenCode can
+        // attach images natively.
+        input: ["text", "image"],
         output: ["text"],
         ...(model.temperature === undefined
           ? {}
