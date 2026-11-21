@@ -122,9 +122,9 @@ try {
   );
   assert.equal(reduced.ok, true);
   assert.equal(reduced.resized, true);
+  assert.equal(reduced.mime, "image/png");
   assert.ok(reduced.width <= 2_000);
   assert.ok(reduced.height <= 2_000);
-  assert.ok(reduced.originalBytes > reduced.bytes);
 
   assert.match(visionErrorText("daily_cap"), /free allowance for today/);
   assert.match(visionErrorText("rate_limited"), /already running/);

@@ -178,6 +178,7 @@ function encodeCandidate(
   image: InstanceType<PhotonModule["PhotonImage"]>,
   width: number,
   height: number,
+  preferred: VisionMime,
 ): Candidate | undefined {
   const resized = photon.resize(image, width, height, photon.SamplingFilter.Lanczos3);
   try {
@@ -193,9 +194,19 @@ function encodeCandidate(
         bytes: jpeg.length,
       });
     }
-    return candidates
-      .filter((candidate) => candidate.bytes <= MAX_IMAGE_BYTES)
-      .sort((a, b) => a.bytes - b.bytes)[0];
+    const usable = candidates.filter(
+      (candidate) => candidate.bytes <= MAX_IMAGE_BYTES,
+    );
+    if (usable.length === 0) return undefined;
+    // Keep PNG for PNG screenshots as long as it fits: JPEG artifacts blur UI
+    // text and transparency, and the vision model charges by pixels, not bytes.
+    if (preferred === "image/png") {
+      const pngCandidate = usable.find(
+        (candidate) => candidate.mime === "image/png",
+      );
+      if (pngCandidate) return pngCandidate;
+    }
+    return usable.sort((a, b) => a.bytes - b.bytes)[0];
   } finally {
     resized.free();
   }
@@ -255,7 +266,7 @@ export async function prepareImage(
     }
 
     while (true) {
-      const best = encodeCandidate(photo, image, width, height);
+      const best = encodeCandidate(photo, image, width, height, mime);
       if (best) {
         return {
           ok: true,
