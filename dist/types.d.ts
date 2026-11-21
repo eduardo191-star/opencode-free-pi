@@ -95,6 +95,10 @@ export type Catalog = {
     cost_experiment?: {
         arm?: string;
     };
+    fusion?: {
+        planner?: string;
+        executor?: string;
+    };
 };
 /** Intermediate, SDK-agnostic model shape used while the catalog is built. */
 export type ModelDefinition = {

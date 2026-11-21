@@ -14,6 +14,7 @@ export function createRuntimeState() {
         sessionClosePromises: new Map(),
         lastSessionResetAt: 0,
         freePiSessions: new Set(),
+        fusionSessions: new Set(),
         wireSessions: new Map(),
         replayBodies: new Map(),
         dirtySessions: new Set(),

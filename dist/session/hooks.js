@@ -14,6 +14,7 @@ import { rememberFreePiSession } from "./track.js";
 import { markWireSessionDirty, rotateWireSessionID, takeWireSessionDirty, wireSessionID, } from "./wire.js";
 import { isFreePiSession, recordCompaction, recordToolEnd, recordToolStart, toolHeaders, } from "./tools.js";
 import { rememberTrackedModel } from "./usage.js";
+import { FUSION_GUIDELINE, FUSION_ID } from "../tools/fusion.js";
 const PENDING_LIMIT = 400;
 /** Each agent gets its own ad turn, so a subagent never reuses the parent's. */
 function pendingKeyOf(sessionID, agent, kind) {
@@ -55,6 +56,16 @@ async function applyGeneration(deps, event, kind) {
         const system = Array.isArray(event.system) ? event.system : [];
         if (!system.some((part) => part?.type === "text" && part.text === EFFICIENCY_RULE)) {
             system.push({ type: "text", text: EFFICIENCY_RULE });
+            event.system = system;
+        }
+    }
+    // The virtual Fusion model routes its turns to the executor; the guideline
+    // lives here so it is sent with the resolved provider request, not with the
+    // model picker's name.
+    if (kind === "primary" && deps.state.fusionSessions.has(event.sessionID)) {
+        const system = Array.isArray(event.system) ? event.system : [];
+        if (!system.some((part) => part?.type === "text" && part.text === FUSION_GUIDELINE)) {
+            system.push({ type: "text", text: FUSION_GUIDELINE });
             event.system = system;
         }
     }
@@ -286,9 +297,25 @@ async function hookForProviders(ctx, name, callback, registrations) {
         }));
     }
 }
-export async function registerSessionHooks(ctx, deps) {
+export async function registerSessionHooks(ctx, deps, options = {}) {
     const registrations = [];
     const generation = (kind) => (event) => applyGeneration(deps, event, kind);
+    if (options.fusionExecutorID) {
+        await hookForProviders(ctx, "experimental.model.resolve", (event) => {
+            if (event.model?.providerID !== PROVIDER_ID)
+                return;
+            if (event.model?.id !== FUSION_ID) {
+                deps.state.fusionSessions.delete(event.sessionID);
+                return;
+            }
+            deps.state.fusionSessions.add(event.sessionID);
+            // The picker says Fusion; the wire request uses the executor model.
+            event.model = {
+                ...event.model,
+                id: options.fusionExecutorID,
+            };
+        }, registrations);
+    }
     await hookForProviders(ctx, "context", generation("primary"), registrations);
     await hookForProviders(ctx, "compaction", generation("compaction"), registrations);
     await hookForProviders(ctx, "generate", generation("generate"), registrations);

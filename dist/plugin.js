@@ -14,7 +14,12 @@ import { subscribeEvents } from "./session/events.js";
 import { registerSessionHooks } from "./session/hooks.js";
 import { cancelAllFinalizeTimers } from "./session/track.js";
 import { createRuntimeState } from "./state.js";
+import { registerAccountTools } from "./tools/account.js";
+import { addFusionModel, FUSION_PLANNER_ID, premiumPlannerAvailable, registerFusionTool, resolveFusionIds, } from "./tools/fusion.js";
+import { registerGenerateImageTool } from "./tools/image-generate.js";
+import { registerUsageTool } from "./tools/usage.js";
 import { registerVisionTool } from "./tools/vision.js";
+import { registerWebTools } from "./tools/web.js";
 import { settle } from "./utils/async.js";
 function activeCredentialResolver(ctx) {
     return async () => {
@@ -58,6 +63,15 @@ async function setup(ctx) {
     const buildOptions = { compact100: state.costExperimentArm === "compact100" };
     const mainModels = buildModels(main, candidates, buildOptions);
     const defenseModels = buildModels(defense, candidates, buildOptions);
+    const fusionIds = resolveFusionIds(Object.keys(mainModels), catalog?.default_model, {
+        server: catalog?.fusion,
+        hasPremium: !catalog?.fusion && mainModels[FUSION_PLANNER_ID]
+            ? await premiumPlannerAvailable(deps)
+            : undefined,
+    });
+    if (fusionIds && addFusionModel(mainModels, fusionIds)) {
+        log.info("Registered the Fusion model", fusionIds);
+    }
     for (const [id, model] of Object.entries(mainModels)) {
         state.outputLimits.set(`${PROVIDER_ID}/${id}`, model.limit.output);
     }
@@ -84,12 +98,29 @@ async function setup(ctx) {
         if (preferred)
             editor.default.set(PROVIDER_ID, preferred);
     });
-    const registrations = await registerSessionHooks(ctx, deps);
-    try {
-        registrations.push(await registerVisionTool(ctx, deps));
+    const registrations = await registerSessionHooks(ctx, deps, {
+        fusionExecutorID: fusionIds?.executor,
+    });
+    const tools = [
+        { name: "look_at_image", register: () => registerVisionTool(ctx, deps) },
+        { name: "free_pi_usage", register: () => registerUsageTool(ctx, deps) },
+        { name: "account", register: () => registerAccountTools(ctx, deps) },
+        { name: "web", register: () => registerWebTools(ctx, deps) },
+        { name: "generate_image", register: () => registerGenerateImageTool(ctx, deps) },
+    ];
+    if (fusionIds) {
+        tools.push({
+            name: "fusion",
+            register: () => registerFusionTool(ctx, deps, fusionIds),
+        });
     }
-    catch (error) {
-        log.warn("Could not register the look_at_image tool", error);
+    for (const tool of tools) {
+        try {
+            registrations.push(await tool.register());
+        }
+        catch (error) {
+            log.warn(`Could not register the ${tool.name} tools`, error);
+        }
     }
     const abort = new AbortController();
     const eventTask = subscribeEvents(ctx, deps, abort.signal);

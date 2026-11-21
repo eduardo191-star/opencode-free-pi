@@ -50,6 +50,7 @@ import {
   toolHeaders,
 } from "./tools.js";
 import { rememberTrackedModel } from "./usage.js";
+import { FUSION_GUIDELINE, FUSION_ID } from "../tools/fusion.js";
 
 type Registration = { dispose: () => Promise<void> };
 type SessionHookName =
@@ -57,6 +58,7 @@ type SessionHookName =
   | "compaction"
   | "generate"
   | "title"
+  | "experimental.model.resolve"
   | "model.request"
   | "http.request"
   | "http.response"
@@ -128,6 +130,21 @@ async function applyGeneration(
       )
     ) {
       system.push({ type: "text", text: EFFICIENCY_RULE });
+      event.system = system;
+    }
+  }
+
+  // The virtual Fusion model routes its turns to the executor; the guideline
+  // lives here so it is sent with the resolved provider request, not with the
+  // model picker's name.
+  if (kind === "primary" && deps.state.fusionSessions.has(event.sessionID)) {
+    const system = Array.isArray(event.system) ? event.system : [];
+    if (
+      !system.some(
+        (part: any) => part?.type === "text" && part.text === FUSION_GUIDELINE,
+      )
+    ) {
+      system.push({ type: "text", text: FUSION_GUIDELINE });
       event.system = system;
     }
   }
@@ -405,10 +422,32 @@ async function hookForProviders(
 export async function registerSessionHooks(
   ctx: Plugin.Context,
   deps: Deps,
+  options: { readonly fusionExecutorID?: string } = {},
 ): Promise<Registration[]> {
   const registrations: Registration[] = [];
   const generation = (kind: RequestKind) => (event: any) =>
     applyGeneration(deps, event, kind);
+
+  if (options.fusionExecutorID) {
+    await hookForProviders(
+      ctx,
+      "experimental.model.resolve",
+      (event: any) => {
+        if (event.model?.providerID !== PROVIDER_ID) return;
+        if (event.model?.id !== FUSION_ID) {
+          deps.state.fusionSessions.delete(event.sessionID);
+          return;
+        }
+        deps.state.fusionSessions.add(event.sessionID);
+        // The picker says Fusion; the wire request uses the executor model.
+        event.model = {
+          ...event.model,
+          id: options.fusionExecutorID,
+        };
+      },
+      registrations,
+    );
+  }
 
   await hookForProviders(ctx, "context", generation("primary"), registrations);
   await hookForProviders(
