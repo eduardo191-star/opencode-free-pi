@@ -3,6 +3,8 @@ import { closeFreePiSession } from "../api/session.js";
 import { readCredentialsToken } from "../auth/credentials.js";
 import { tokenFromCredential } from "../auth/credential.js";
 import { handleFreePiError } from "../errors/handle.js";
+import { forgetCacheMiss, observeStepUsage } from "./cache.js";
+import { forgetToolStats } from "./tools.js";
 import { beginExecution, cancelAllFinalizeTimers, endExecution, finalizeFreePiSession, forgetFreePiSession, } from "./track.js";
 import { recordUsage } from "./usage.js";
 const EVENT_TYPES = [
@@ -47,9 +49,14 @@ async function handleEvent(ctx, deps, event) {
             endExecution(deps, event.data?.sessionID);
             return;
         }
-        case "session.usage.updated":
+        case "session.usage.updated": {
+            recordUsage(deps, event.data?.sessionID, event.data?.cost, event.data?.tokens);
+            return;
+        }
         case "session.step.ended": {
             recordUsage(deps, event.data?.sessionID, event.data?.cost, event.data?.tokens);
+            // Step tokens are per request; usage.updated is cumulative.
+            observeStepUsage(deps, event.data?.sessionID, event.data?.tokens);
             return;
         }
         case "session.deleted": {
@@ -58,6 +65,8 @@ async function handleEvent(ctx, deps, event) {
                 return;
             await finalizeFreePiSession(deps, sessionID);
             forgetFreePiSession(deps, sessionID);
+            forgetCacheMiss(deps, sessionID);
+            forgetToolStats(deps, sessionID);
             return;
         }
         case "location.shutdown": {

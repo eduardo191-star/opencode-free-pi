@@ -1,7 +1,9 @@
 /** Converts internal model definitions into OpenCode V2 provider records. */
 
 import {
+  CHUNK_TIMEOUT_MS,
   CONTEXT_WINDOW,
+  HEADER_TIMEOUT_MS,
   MAX_OUTPUT_TOKENS,
   OPENAI_COMPATIBLE_PACKAGE,
   PROVIDER_ID,
@@ -30,12 +32,16 @@ export function toV2Models(providerID: string, models: ModelMap): any[] {
       ...(model.family ? { family: model.family } : {}),
       capabilities: {
         tools: model.tool_call !== false,
-        input: model.modalities?.input ?? ["text"],
-        output: model.modalities?.output ?? ["text"],
+        // The provider CLI registers every free-pi model as text-only. An
+        // advertised image input would let OpenCode send media the server
+        // does not accept.
+        input: ["text"],
+        output: ["text"],
         ...(model.temperature === undefined
           ? {}
           : { temperature: model.temperature }),
       },
+      ...(model.settings ? { settings: model.settings } : {}),
       variants: Object.entries(model.variants ?? {}).map(([id, settings]) => ({
         id,
         settings,
@@ -52,7 +58,7 @@ export function toV2Models(providerID: string, models: ModelMap): any[] {
         },
       ],
       status: model.status === "deprecated" ? "deprecated" : "active",
-      enabled: true,
+      enabled: model.enabled !== false,
       limit: {
         context: model.limit?.context ?? CONTEXT_WINDOW,
         output: model.limit?.output ?? MAX_OUTPUT_TOKENS,
@@ -75,6 +81,13 @@ export function baseProviderInfo(
     settings: {
       baseURL: completionsBaseUrl(),
       apiKey: token ?? "free-pi",
+      // free-pi is ad-supported and bills credits, so OpenCode's keep-alive
+      // warmer would spend requests the provider CLI never makes. pi keeps
+      // warming off for free-pi and the economics are always zero.
+      cache: { warming: false },
+      // Match pi's HTTP idle timeout for both response headers and chunks.
+      headerTimeout: HEADER_TIMEOUT_MS,
+      chunkTimeout: CHUNK_TIMEOUT_MS,
     },
   };
 }

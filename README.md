@@ -74,6 +74,17 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - **Compactación integrada**: los errores `context_too_long` de free-pi se
   reescriben para que OpenCode los reconozca como desbordamiento de contexto y
   ejecute `/compact` automáticamente en vez de terminar el turno.
+- **Pensamiento como el CLI**: todos los modelos razonan y empiezan en `off`;
+  el selector ofrece `minimal`, `low`, `medium` y `high` mediante
+  `reasoning_effort`, igual que `pi-ai`. No se anuncian `thinking_budget` ni
+  `thinking`, porque la ruta `openai-compatible` de OpenCode los descarta.
+- **Sin cache warming**: el plugin desactiva los keep-alives de OpenCode para
+  free-pi. El CLI nunca los hace y cada ping gastaría créditos y anuncios.
+- **Timeouts del CLI**: 5 minutos para las cabeceras y para cada trozo de la
+  respuesta, los mismos valores que `httpIdleTimeoutMs` de pi.
+- **Avisos de cache miss opcionales**: con `FREE_PI_CACHE_MISS_NOTICES=1` el
+  plugin registra en el log los turnos que vuelven a facturar más de 20k
+  tokens de prompt, usando la misma fórmula que `cache-stats` de pi.
 - Anuncios e impresiones asociados al turno correcto.
 - Cada agente y subagente usa su propio `x-session-id`, `x-turn-id` y contexto
   de anuncios; nunca reutiliza los del agente principal.
@@ -95,6 +106,12 @@ El plugin replica las cabeceras del plugin V1 de free-pi:
 
 - **Modelo**: `authorization`, `x-session-id`, `x-client-version`,
   `x-turn-id` y `x-freepi-cost-exp` (cuando el catálogo asigna un experimento).
+- **Resultados de herramientas**: `x-freepi-tool-meta` (duración, código de
+  salida y truncado de las últimas llamadas), `x-freepi-tool-errors` (IDs de
+  herramientas fallidas) y `x-freepi-compacted` (mensajes plegados por la
+  última compactación, en la petición siguiente).
+- **Catálogo** (`/client-version`): `authorization` y `x-freepi-cost-exp: 1`,
+  igual que el CLI, para que el servidor pueda asignar el experimento de coste.
 - **Anuncios** (`/ads/next`): `authorization`, `x-session-id`,
   `x-client-version`, `x-turn-id`, `x-ad-trigger`, `x-client-os`,
   `x-client-arch`, `x-client-timezone`, `x-client-locale` y `x-ad-context`.
@@ -113,6 +130,11 @@ free-pi cobra en créditos contra una cuota diaria, no en USD por token. Por
 eso los modelos se registran con costo `0`, igual que el CLI del proveedor; el
 consumo real se consulta en `/me` y `/me/stats` y se refleja en los mensajes de
 cuota y límite.
+
+Los reintentos siguen la política de pi: como máximo 3 reintentos, con espera
+`min(2s · 2^(n-1), 60s)`. Si el catálogo asigna el experimento `compact100`, el
+plugin baja la ventana a 117 647 tokens para que OpenCode compacte al llegar a
+100k, que es el mismo umbral que consigue `reserveTokens: 100000` en el CLI.
 
 ## Rutas por plataforma
 
@@ -137,6 +159,7 @@ Si `XDG_CONFIG_HOME` o `OPENCODE_CONFIG_DIR` están definidos, se respetan.
 | `OPENCODE_CONFIG_DIR`     | Directorio de configuración de OpenCode.             |
 | `FREE_PI_CACHE_DIR`       | Directorio de caché del plugin.                      |
 | `FREE_PI_LOG_FILE`        | Ruta alternativa del archivo de log del plugin.      |
+| `FREE_PI_CACHE_MISS_NOTICES=1` | Registrar en el log los cache miss de más de 20k tokens. |
 
 No hay variables obligatorias.
 

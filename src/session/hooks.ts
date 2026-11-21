@@ -11,6 +11,9 @@ import {
   EFFICIENCY_RULE,
   MAX_OUTPUT_TOKENS,
   PROVIDER_ID,
+  RETRY_BASE_DELAY_MS,
+  RETRY_MAX_DELAY_MS,
+  RETRY_MAX_RETRIES,
 } from "../constants.js";
 import type { Deps } from "../deps.js";
 import {
@@ -18,7 +21,14 @@ import {
   rewriteLimitResponse,
 } from "../errors/limit.js";
 import { trimMap } from "../utils/async.js";
+import { watchFreePiNotice } from "./notices.js";
 import { rememberFreePiSession } from "./track.js";
+import {
+  recordCompaction,
+  recordToolEnd,
+  recordToolStart,
+  toolHeaders,
+} from "./tools.js";
 import { rememberTrackedModel } from "./usage.js";
 
 type Registration = { dispose: () => Promise<void> };
@@ -28,7 +38,8 @@ type SessionHookName =
   | "generate"
   | "title"
   | "model.request"
-  | "http.response";
+  | "http.response"
+  | "retry";
 type RequestKind = "primary" | "compaction" | "generate" | "title";
 
 const PENDING_LIMIT = 400;
@@ -77,6 +88,16 @@ async function applyGeneration(
     if (current === undefined || current > cap) event.options.maxTokens = cap;
   }
 
+  if (kind === "compaction") {
+    // OpenCode sends the messages it is folding into the summary, which is the
+    // same set pi reports through `session_before_compact`.
+    recordCompaction(
+      deps,
+      event.sessionID,
+      Array.isArray(event.messages) ? event.messages.length : 0,
+    );
+  }
+
   if (deps.state.costExperimentArm === "efficiency") {
     const system = Array.isArray(event.system) ? event.system : [];
     if (
@@ -122,6 +143,11 @@ async function applyModelRequest(deps: Deps, event: any): Promise<void> {
   // an impression the user never sees.
   if (event.kind === "title") return;
 
+  Object.assign(
+    event.headers,
+    toolHeaders(deps, event.sessionID, event.kind !== "compaction"),
+  );
+
   const pending = deps.state.pendingAdTurns.get(
     pendingKeyOf(event.sessionID, agent, event.kind),
   );
@@ -143,6 +169,47 @@ async function applyModelRequest(deps: Deps, event: any): Promise<void> {
       () => undefined,
     );
   }
+}
+
+/**
+ * pi retries at most three times with `min(2s * 2^(n-1), 60s)`. OpenCode's
+ * `attempt` counts the initial call as 1, so pi's attempt is `attempt - 1`.
+ * Non-retryable decisions are left alone.
+ */
+function applyRetryPolicy(event: any): void {
+  if (event.attempt > RETRY_MAX_RETRIES + 1) {
+    event.decision = { retry: false };
+    return;
+  }
+  if (!event.decision?.retry) return;
+  const attempt = Math.max(1, event.attempt - 1);
+  event.decision.delay = Math.min(
+    RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
+    RETRY_MAX_DELAY_MS,
+  );
+}
+
+async function registerToolHooks(
+  ctx: Plugin.Context,
+  deps: Deps,
+  registrations: Registration[],
+): Promise<void> {
+  if (!ctx.tool?.hook) return;
+  registrations.push(
+    await ctx.tool.hook("execute.before", (event) => {
+      recordToolStart(deps, event.sessionID, event.id);
+    }),
+  );
+  registrations.push(
+    await ctx.tool.hook("execute.after", (event) => {
+      recordToolEnd(deps, event.sessionID, {
+        id: event.id,
+        tool: event.tool,
+        status: event.status,
+        ...(event.status === "completed" ? { result: event.result } : {}),
+      });
+    }),
+  );
 }
 
 async function hookForProviders(
@@ -193,16 +260,26 @@ export async function registerSessionHooks(
         event.response,
       ).catch(() => undefined);
       if (overflow) {
-        event.response = overflow;
+        event.response = watchFreePiNotice(deps, overflow);
         return;
       }
       const rewritten = await rewriteLimitResponse(event.response).catch(
         () => undefined,
       );
-      if (rewritten) event.response = rewritten;
+      event.response = watchFreePiNotice(
+        deps,
+        rewritten ?? event.response,
+      );
     },
     registrations,
   );
+  await hookForProviders(
+    ctx,
+    "retry",
+    (event: any) => applyRetryPolicy(event),
+    registrations,
+  );
+  await registerToolHooks(ctx, deps, registrations);
 
   return registrations;
 }

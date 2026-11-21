@@ -1,7 +1,10 @@
 /** Turns the free-pi catalog and models.dev registry into model definitions. */
 
 import {
+  COMPACT100_CONTEXT_WINDOW,
   CONTEXT_WINDOW,
+  DEFAULT_REASONING_EFFORT,
+  DEFAULT_THINKING_LEVELS,
   MAX_OUTPUT_TOKENS,
 } from "../constants.js";
 import type {
@@ -155,42 +158,30 @@ export function modelCapability(
   return best;
 }
 
-function budgetVariants(
-  option: Extract<ReasoningOption, { type: "budget_tokens" }>,
-  outputLimit: number,
-  variants: VariantMap,
-): void {
-  const ceiling = Math.max(
-    1,
-    Math.min(
-      positiveNumber(option.max) ?? outputLimit - 1024,
-      outputLimit - 1024,
-      MAX_OUTPUT_TOKENS - 1024,
-    ),
-  );
-  const floor = Math.min(positiveNumber(option.min) ?? 0, ceiling);
-  const high = Math.min(
-    Math.max(floor, Math.floor((ceiling + 1) / 2)),
-    ceiling,
-  );
-  for (const [level, budget] of [
-    ["high", high],
-    ["max", ceiling],
-  ] as const) {
-    variants[level] = {
-      reasoningEffort: level,
-      thinking_budget: budget,
-      thinking: { type: "enabled", budget_tokens: budget },
-    };
-  }
+/**
+ * free-pi's openai-compatible route only understands `reasoning_effort`.
+ * pi's `thinking_budget` and `thinking` fields are dropped by OpenCode's
+ * lowering, so advertising them would be inert. Budget-style catalogs still
+ * expose their top levels as effort variants.
+ */
+function budgetVariants(variants: VariantMap): void {
+  variants.high = { reasoningEffort: "high" };
+  variants.max = { reasoningEffort: "max" };
 }
 
 export function modelVariants(
   options: ReasoningOption[] | undefined,
-  outputLimit: number,
+  _outputLimit: number,
 ): VariantMap {
   const variants: VariantMap = {};
-  if (!options || options.length === 0) return variants;
+  // The provider CLI offers these levels to every reasoning model because its
+  // `thinkingLevelMap` is unset; `xhigh` and `max` stay opt-in.
+  if (!options || options.length === 0) {
+    for (const level of DEFAULT_THINKING_LEVELS) {
+      variants[level] = { reasoningEffort: level };
+    }
+    return variants;
+  }
   const effort = options.find(
     (option): option is Extract<ReasoningOption, { type: "effort" }> =>
       option.type === "effort",
@@ -205,17 +196,21 @@ export function modelVariants(
     variants.none = { reasoningEffort: "none" };
     variants.high = { reasoningEffort: "high" };
   }
-  const budget = options.find(
-    (option): option is Extract<ReasoningOption, { type: "budget_tokens" }> =>
-      option.type === "budget_tokens",
-  );
-  if (budget) budgetVariants(budget, outputLimit, variants);
+  if (options.some((option) => option.type === "budget_tokens")) {
+    budgetVariants(variants);
+  }
   return variants;
 }
+
+export type BuildModelsOptions = {
+  /** pi's `compact100` arm compacts at 100k instead of the default ceiling. */
+  compact100?: boolean;
+};
 
 export function buildModels(
   models: CatalogModel[],
   candidates: RegistryCandidate[] = [],
+  options: BuildModelsOptions = {},
 ): ModelMap {
   const result: ModelMap = {};
   for (const model of models) {
@@ -230,14 +225,17 @@ export function buildModels(
     // an advertised 1M window would let OpenCode grow a session past the
     // server's real ceiling and fail with `context_too_long` instead of
     // compacting.
+    const contextCeiling = options.compact100
+      ? COMPACT100_CONTEXT_WINDOW
+      : CONTEXT_WINDOW;
     const limitContext = Math.min(
       positiveNumber(
         model.context_window,
         model.contextWindow,
         model.limit?.context,
         capability?.limit?.context,
-      ) ?? CONTEXT_WINDOW,
-      CONTEXT_WINDOW,
+      ) ?? contextCeiling,
+      contextCeiling,
     );
     const limitOutput = Math.min(
       positiveNumber(
@@ -260,6 +258,10 @@ export function buildModels(
       reasoning,
       reasoning_options: reasoningOptions,
       variants: reasoning ? modelVariants(reasoningOptions, limitOutput) : {},
+      ...(reasoning
+        ? { settings: { reasoningEffort: DEFAULT_REASONING_EFFORT } }
+        : {}),
+      enabled: model.unavailable !== true,
       temperature: model.temperature ?? capability?.temperature ?? true,
       tool_call: model.tool_call ?? capability?.tool_call ?? true,
       attachment: model.attachment ?? capability?.attachment ?? false,

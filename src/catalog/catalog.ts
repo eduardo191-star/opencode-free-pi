@@ -1,9 +1,11 @@
 /** Fetches the live free-pi model catalog. */
 
+import { resolveToken } from "../auth/token.js";
 import {
   CATALOG_DISK_TTL_MS,
   CATALOG_TIMEOUT_MS,
   CATALOG_TTL_MS,
+  COST_EXPERIMENT_HEADER,
 } from "../constants.js";
 import type { Deps } from "../deps.js";
 import type { Catalog } from "../types.js";
@@ -44,8 +46,16 @@ export function refreshCatalog(deps: Deps): Promise<Catalog | undefined> {
   if (state.catalogPromise) return state.catalogPromise;
   const pending = (async () => {
     try {
+      // The CLI asks for the catalog with its JWT and the cost-experiment
+      // header; without both the server may omit `cost_experiment`.
+      const token = await resolveToken(deps).catch(() => undefined);
+      const headers: Record<string, string> = {
+        accept: "application/json",
+        [COST_EXPERIMENT_HEADER]: "1",
+      };
+      if (token) headers.authorization = `Bearer ${token}`;
       const response = await fetch(`${resolveBaseUrl()}/client-version`, {
-        headers: { accept: "application/json" },
+        headers,
         signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);

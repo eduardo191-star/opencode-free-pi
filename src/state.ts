@@ -3,6 +3,7 @@
 import { DEFAULT_CLIENT_VERSION } from "./constants.js";
 import type {
   AdTurn,
+  CacheMissState,
   Catalog,
   FreePiError,
   ModelRegistry,
@@ -10,6 +11,7 @@ import type {
   RequestUsage,
   SessionResetOutcome,
   TokenCheckState,
+  ToolStats,
   TrackedModel,
 } from "./types.js";
 
@@ -54,6 +56,8 @@ export type RuntimeState = {
   pendingAdTurns: Map<string, AdTurn>;
   adImpressions: Map<string, Promise<void>>;
   trackedModels: Map<string, TrackedModel>;
+  cacheMisses: Map<string, CacheMissState>;
+  toolStats: Map<string, ToolStats>;
 };
 
 export function createRuntimeState(): RuntimeState {
@@ -78,5 +82,7 @@ export function createRuntimeState(): RuntimeState {
     pendingAdTurns: new Map(),
     adImpressions: new Map(),
     trackedModels: new Map(),
+    cacheMisses: new Map(),
+    toolStats: new Map(),
   };
 }

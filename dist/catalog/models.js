@@ -1,5 +1,5 @@
 /** Turns the free-pi catalog and models.dev registry into model definitions. */
-import { CONTEXT_WINDOW, MAX_OUTPUT_TOKENS, } from "../constants.js";
+import { COMPACT100_CONTEXT_WINDOW, CONTEXT_WINDOW, DEFAULT_REASONING_EFFORT, DEFAULT_THINKING_LEVELS, MAX_OUTPUT_TOKENS, } from "../constants.js";
 import { positiveNumber } from "../utils/numbers.js";
 import { cleanText } from "../utils/text.js";
 export function usableModels(catalog) {
@@ -115,25 +115,26 @@ export function modelCapability(model, candidates) {
     }
     return best;
 }
-function budgetVariants(option, outputLimit, variants) {
-    const ceiling = Math.max(1, Math.min(positiveNumber(option.max) ?? outputLimit - 1024, outputLimit - 1024, MAX_OUTPUT_TOKENS - 1024));
-    const floor = Math.min(positiveNumber(option.min) ?? 0, ceiling);
-    const high = Math.min(Math.max(floor, Math.floor((ceiling + 1) / 2)), ceiling);
-    for (const [level, budget] of [
-        ["high", high],
-        ["max", ceiling],
-    ]) {
-        variants[level] = {
-            reasoningEffort: level,
-            thinking_budget: budget,
-            thinking: { type: "enabled", budget_tokens: budget },
-        };
-    }
+/**
+ * free-pi's openai-compatible route only understands `reasoning_effort`.
+ * pi's `thinking_budget` and `thinking` fields are dropped by OpenCode's
+ * lowering, so advertising them would be inert. Budget-style catalogs still
+ * expose their top levels as effort variants.
+ */
+function budgetVariants(variants) {
+    variants.high = { reasoningEffort: "high" };
+    variants.max = { reasoningEffort: "max" };
 }
-export function modelVariants(options, outputLimit) {
+export function modelVariants(options, _outputLimit) {
     const variants = {};
-    if (!options || options.length === 0)
+    // The provider CLI offers these levels to every reasoning model because its
+    // `thinkingLevelMap` is unset; `xhigh` and `max` stay opt-in.
+    if (!options || options.length === 0) {
+        for (const level of DEFAULT_THINKING_LEVELS) {
+            variants[level] = { reasoningEffort: level };
+        }
         return variants;
+    }
     const effort = options.find((option) => option.type === "effort");
     if (effort) {
         for (const value of effort.values) {
@@ -145,12 +146,12 @@ export function modelVariants(options, outputLimit) {
         variants.none = { reasoningEffort: "none" };
         variants.high = { reasoningEffort: "high" };
     }
-    const budget = options.find((option) => option.type === "budget_tokens");
-    if (budget)
-        budgetVariants(budget, outputLimit, variants);
+    if (options.some((option) => option.type === "budget_tokens")) {
+        budgetVariants(variants);
+    }
     return variants;
 }
-export function buildModels(models, candidates = []) {
+export function buildModels(models, candidates = [], options = {}) {
     const result = {};
     for (const model of models) {
         if (!model.id)
@@ -164,7 +165,10 @@ export function buildModels(models, candidates = []) {
         // an advertised 1M window would let OpenCode grow a session past the
         // server's real ceiling and fail with `context_too_long` instead of
         // compacting.
-        const limitContext = Math.min(positiveNumber(model.context_window, model.contextWindow, model.limit?.context, capability?.limit?.context) ?? CONTEXT_WINDOW, CONTEXT_WINDOW);
+        const contextCeiling = options.compact100
+            ? COMPACT100_CONTEXT_WINDOW
+            : CONTEXT_WINDOW;
+        const limitContext = Math.min(positiveNumber(model.context_window, model.contextWindow, model.limit?.context, capability?.limit?.context) ?? contextCeiling, contextCeiling);
         const limitOutput = Math.min(positiveNumber(model.max_tokens, model.maxTokens, model.max_output_tokens, model.limit?.output, capability?.limit?.output) ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS);
         result[model.id] = {
             id: model.id,
@@ -176,6 +180,10 @@ export function buildModels(models, candidates = []) {
             reasoning,
             reasoning_options: reasoningOptions,
             variants: reasoning ? modelVariants(reasoningOptions, limitOutput) : {},
+            ...(reasoning
+                ? { settings: { reasoningEffort: DEFAULT_REASONING_EFFORT } }
+                : {}),
+            enabled: model.unavailable !== true,
             temperature: model.temperature ?? capability?.temperature ?? true,
             tool_call: model.tool_call ?? capability?.tool_call ?? true,
             attachment: model.attachment ?? capability?.attachment ?? false,

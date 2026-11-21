@@ -103,6 +103,9 @@ export type ModelDefinition = {
     reasoning: boolean;
     reasoning_options?: ReasoningOption[];
     variants: Record<string, Record<string, unknown>>;
+    /** Model-level provider options, such as the default reasoning effort. */
+    settings?: Record<string, unknown>;
+    enabled: boolean;
     temperature: boolean;
     tool_call: boolean;
     attachment: boolean;
@@ -236,6 +239,20 @@ export type AdTurn = {
 export type TrackedModel = {
     providerID: string;
     modelID: string;
+};
+export type CacheMissState = {
+    promptTokens: number;
+    at: number;
+    modelKey: string;
+    reportedCache: boolean;
+};
+export type ToolStats = {
+    meta: string[];
+    metaBytes: number;
+    failed: string[];
+    evicted: boolean;
+    started: Map<string, number>;
+    compacted: number;
 };
 export type TokenUsageLike = {
     input?: number;

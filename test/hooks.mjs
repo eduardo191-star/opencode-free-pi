@@ -11,6 +11,7 @@ delete process.env.FREEPI_JWT;
 
 const { registerSessionHooks } = await import("../dist/session/hooks.js");
 const { createRuntimeState } = await import("../dist/state.js");
+const { observeStepUsage } = await import("../dist/session/cache.js");
 const { recordUsage } = await import("../dist/session/usage.js");
 const { MAX_OUTPUT_TOKENS, EFFICIENCY_RULE } = await import("../dist/constants.js");
 
@@ -30,6 +31,7 @@ globalThis.fetch = async (input, init = {}) => {
 };
 
 const hooks = new Map();
+const toolHooks = new Map();
 const ctx = {
   session: {
     hook: async (name, callback, options) => {
@@ -39,14 +41,25 @@ const ctx = {
       return { dispose: async () => {} };
     },
   },
+  tool: {
+    hook: async (name, callback) => {
+      const list = toolHooks.get(name) ?? [];
+      list.push({ callback });
+      toolHooks.set(name, list);
+      return { dispose: async () => {} };
+    },
+  },
 };
 
 const warnings = [];
+const infos = [];
 const deps = {
   state: createRuntimeState(),
   log: {
     log() {},
-    info() {},
+    info(message, extra) {
+      infos.push({ message, extra });
+    },
     error() {},
     warn(message, extra) {
       warnings.push({ message, extra });
@@ -71,7 +84,8 @@ const invoke = async (name, providerID, event) => {
 
 try {
   const registrations = await registerSessionHooks(ctx, deps);
-  assert.equal(registrations.length, 12);
+  // 7 session hooks for each provider, plus the two global tool hooks.
+  assert.equal(registrations.length, 16);
   for (const name of [
     "context",
     "compaction",
@@ -79,6 +93,7 @@ try {
     "title",
     "model.request",
     "http.response",
+    "retry",
   ]) {
     const list = hooks.get(name) ?? [];
     assert.deepEqual(
@@ -245,6 +260,132 @@ try {
     adCountBeforeTitle,
     "title requests do not fetch an ad",
   );
+
+  // Tool outcomes reach the next model request as free-pi's three headers.
+  const toolBefore = toolHooks.get("execute.before")[0];
+  const toolAfter = toolHooks.get("execute.after")[0];
+  assert.ok(toolBefore && toolAfter, "tool hooks are registered");
+  toolBefore.callback({
+    sessionID: "ses_parent",
+    agent: "build",
+    messageID: "msg_tool",
+    id: "call_1",
+    tool: "shell",
+    input: {},
+  });
+  toolAfter.callback({
+    sessionID: "ses_parent",
+    agent: "build",
+    messageID: "msg_tool",
+    id: "call_1",
+    tool: "shell",
+    input: {},
+    status: "completed",
+    result: { metadata: { exit: 0, truncated: false } },
+  });
+  toolAfter.callback({
+    sessionID: "ses_parent",
+    agent: "build",
+    messageID: "msg_tool",
+    id: "call_2",
+    tool: "read",
+    input: {},
+    status: "error",
+    error: new Error("missing file"),
+  });
+  const withTools = await invoke("model.request", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    headers: {},
+  });
+  assert.match(
+    withTools.headers["x-freepi-tool-meta"],
+    /^v1:call_1~\d+~0~0,call_2~\d+~-~0$/,
+  );
+  assert.equal(withTools.headers["x-freepi-tool-errors"], "v1:call_2");
+
+  // A compaction marks the next request with the number of folded messages.
+  await invoke("compaction", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "compaction",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    system: [],
+    messages: [userMessage, userMessage, userMessage],
+    options: {},
+  });
+  const afterCompaction = await invoke("model.request", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    headers: {},
+  });
+  assert.equal(afterCompaction.headers["x-freepi-compacted"], "v1:3");
+
+  // Retry follows pi's 3 attempts, 2s base and 60s cap.
+  const retry = await invoke("retry", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: { type: "unknown" },
+    attempt: 2,
+    decision: { retry: true, delay: 999_999 },
+  });
+  assert.deepEqual(retry.decision, { retry: true, delay: 2_000 });
+  const secondRetry = await invoke("retry", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: { type: "unknown" },
+    attempt: 4,
+    decision: { retry: true, delay: 1 },
+  });
+  assert.deepEqual(secondRetry.decision, { retry: true, delay: 8_000 });
+  const exhausted = await invoke("retry", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: { type: "unknown" },
+    attempt: 5,
+    decision: { retry: true, delay: 1 },
+  });
+  assert.deepEqual(exhausted.decision, { retry: false });
+  const notRetryable = await invoke("retry", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: { type: "unknown" },
+    attempt: 2,
+    decision: { retry: false },
+  });
+  assert.deepEqual(notRetryable.decision, { retry: false });
+
+  // Cache misses are opt-in and need a real re-billed prompt.
+  process.env.FREE_PI_CACHE_MISS_NOTICES = "1";
+  deps.state.trackedModels.set("ses_cache", {
+    providerID: "free-pi",
+    modelID: "hy4-flash",
+  });
+  observeStepUsage(deps, "ses_cache", {
+    input: 30_000,
+    output: 10,
+    reasoning: 0,
+    cache: { read: 0, write: 0 },
+  });
+  observeStepUsage(deps, "ses_cache", {
+    input: 40_000,
+    output: 10,
+    reasoning: 0,
+    cache: { read: 1_000, write: 0 },
+  });
+  assert.ok(
+    infos.some((entry) => /cache miss: 29000 tokens/.test(entry.message)),
+    JSON.stringify(infos),
+  );
+  delete process.env.FREE_PI_CACHE_MISS_NOTICES;
 
   // Long-lived limits are rewritten to a friendly 400.
   const limited = new Response(

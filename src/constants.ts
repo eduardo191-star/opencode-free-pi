@@ -19,6 +19,49 @@ export const COST_EXPERIMENT_HEADER = "x-freepi-cost-exp";
 export const EFFICIENCY_RULE =
   "- When several independent reads or searches are needed, issue them in the same turn.";
 
+/**
+ * The provider CLI registers every free-pi model with reasoning enabled and
+ * defaults to thinking off. OpenCode only sends `reasoning_effort` when a
+ * variant or model setting provides one, so the model carries the off default
+ * and the picker offers the levels the CLI would.
+ */
+export const DEFAULT_REASONING_EFFORT = "none";
+export const DEFAULT_THINKING_LEVELS = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+] as const;
+
+/** pi-ai's HTTP idle timeout for headers and body chunks. */
+export const HEADER_TIMEOUT_MS = 300_000;
+export const CHUNK_TIMEOUT_MS = 300_000;
+
+/** pi's retry policy: 3 retries, 2s base, 60s cap. */
+export const RETRY_MAX_RETRIES = 3;
+export const RETRY_BASE_DELAY_MS = 2_000;
+export const RETRY_MAX_DELAY_MS = 60_000;
+
+/** pi assumes a 5 minute prompt-cache TTL when explaining a miss. */
+export const CACHE_TTL_MS = 5 * 60_000;
+export const CACHE_MISS_NOISE_FLOOR_TOKENS = 1_024;
+export const CACHE_MISS_NOTICE_TOKENS = 20_000;
+
+/** Tool outcome headers emitted by the free-pi provider CLI. */
+export const TOOL_META_HEADER = "x-freepi-tool-meta";
+export const TOOL_ERRORS_HEADER = "x-freepi-tool-errors";
+export const COMPACTED_HEADER = "x-freepi-compacted";
+export const TOOL_META_BUDGET = 1_500;
+export const TOOL_ID_LIMIT = 50;
+
+/**
+ * The `compact100` cost experiment reserves 100k tokens, so pi compacts when
+ * the prompt reaches 100k. OpenCode compacts at `window - max(15%, 16k)`;
+ * 117_647 is the smallest window that keeps that trigger at 100k.
+ */
+export const COMPACT100_TRIGGER_TOKENS = 100_000;
+export const COMPACT100_CONTEXT_WINDOW = 117_647;
+
 export const SESSION_TRACK_LIMIT = 200;
 export const AUTH_SKEW_MS = 60_000;
 export const AUTH_TIMEOUT_MS = 15 * 60_000;

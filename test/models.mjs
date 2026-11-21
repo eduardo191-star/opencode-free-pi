@@ -51,6 +51,9 @@ assert.deepEqual(free.variants, {
   low: { reasoningEffort: "low" },
   high: { reasoningEffort: "high" },
 });
+// Every reasoning model starts with thinking off, like free-pi's CLI.
+assert.deepEqual(free.settings, { reasoningEffort: "none" });
+assert.equal(free.enabled, true);
 
 // free-pi bills in credits, not per-token USD, so every model reports zero
 // cost just like the provider CLI's model registration.
@@ -132,29 +135,33 @@ assert.deepEqual(
     high: { reasoningEffort: "high" },
   },
 );
+// Budget-style options keep their top levels, but OpenCode's openai-compatible
+// route only forwards `reasoning_effort`; the budget fields would be inert.
 assert.deepEqual(
   modelVariants([{ type: "budget_tokens", min: 1_000, max: 1_000_000 }], 8_192),
   {
-    high: {
-      reasoningEffort: "high",
-      thinking_budget: 3_584,
-      thinking: { type: "enabled", budget_tokens: 3_584 },
-    },
-    max: {
-      reasoningEffort: "max",
-      thinking_budget: 7_168,
-      thinking: { type: "enabled", budget_tokens: 7_168 },
-    },
+    high: { reasoningEffort: "high" },
+    max: { reasoningEffort: "max" },
   },
 );
-assert.deepEqual(modelVariants(undefined, 8_192), {});
+// Without catalog options the CLI still offers these levels to every
+// reasoning model.
+assert.deepEqual(modelVariants(undefined, 8_192), {
+  minimal: { reasoningEffort: "minimal" },
+  low: { reasoningEffort: "low" },
+  medium: { reasoningEffort: "medium" },
+  high: { reasoningEffort: "high" },
+});
 
 // The V2 projection keeps capabilities, variants, limits and cost tiers.
 const [v2] = toV2Models("free-pi", { "free-model": free });
 assert.equal(v2.providerID, "free-pi");
 assert.equal(v2.capabilities.tools, false);
-assert.deepEqual(v2.capabilities.input, ["text", "image"]);
+// free-pi only accepts text, whatever models.dev reports upstream.
+assert.deepEqual(v2.capabilities.input, ["text"]);
+assert.deepEqual(v2.capabilities.output, ["text"]);
 assert.equal(v2.capabilities.temperature, false);
+assert.deepEqual(v2.settings, { reasoningEffort: "none" });
 assert.deepEqual(v2.variants, [
   { id: "low", settings: { reasoningEffort: "low" } },
   { id: "high", settings: { reasoningEffort: "high" } },
@@ -166,5 +173,25 @@ assert.deepEqual(v2.cost, [
 assert.equal(v2.status, "active");
 assert.equal(v2.enabled, true);
 assert.equal(v2.time.released, 0);
+
+// Models the server marks unavailable are disabled, not merely deprecated.
+const unavailable = buildModels([
+  { id: "gone", display_name: "Gone", unavailable: true },
+])["gone"];
+assert.equal(unavailable.enabled, false);
+assert.equal(unavailable.status, "deprecated");
+const [v2Gone] = toV2Models("free-pi", { gone: unavailable });
+assert.equal(v2Gone.enabled, false);
+
+// The compact100 arm lowers the window so OpenCode compacts at 100k.
+const compact = buildModels(
+  [{ id: "compact", display_name: "Compact" }],
+  [],
+  { compact100: true },
+)["compact"];
+assert.deepEqual(compact.limit, {
+  context: 117_647,
+  output: MAX_OUTPUT_TOKENS,
+});
 
 console.log("ok");

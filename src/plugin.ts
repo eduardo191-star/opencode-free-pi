@@ -64,8 +64,9 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
   const registry = registryResult ?? state.cachedRegistry;
   const { main, defense } = partitionModels(catalog);
   const candidates = modelRegistryCandidates(registry);
-  const mainModels = buildModels(main, candidates);
-  const defenseModels = buildModels(defense, candidates);
+  const buildOptions = { compact100: state.costExperimentArm === "compact100" };
+  const mainModels = buildModels(main, candidates, buildOptions);
+  const defenseModels = buildModels(defense, candidates, buildOptions);
 
   for (const [id, model] of Object.entries(mainModels)) {
     state.outputLimits.set(`${PROVIDER_ID}/${id}`, model.limit.output);

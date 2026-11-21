@@ -1,5 +1,5 @@
 /** Per-plugin-instance mutable state. */
-import type { AdTurn, Catalog, FreePiError, ModelRegistry, QuotaSnapshot, RequestUsage, SessionResetOutcome, TokenCheckState, TrackedModel } from "./types.js";
+import type { AdTurn, CacheMissState, Catalog, FreePiError, ModelRegistry, QuotaSnapshot, RequestUsage, SessionResetOutcome, TokenCheckState, ToolStats, TrackedModel } from "./types.js";
 export type RuntimeState = {
     latestClientVersion: string;
     providerToken?: string;
@@ -39,5 +39,7 @@ export type RuntimeState = {
     pendingAdTurns: Map<string, AdTurn>;
     adImpressions: Map<string, Promise<void>>;
     trackedModels: Map<string, TrackedModel>;
+    cacheMisses: Map<string, CacheMissState>;
+    toolStats: Map<string, ToolStats>;
 };
 export declare function createRuntimeState(): RuntimeState;

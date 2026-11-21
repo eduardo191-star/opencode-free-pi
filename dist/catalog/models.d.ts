@@ -11,5 +11,9 @@ export declare function displayName(model: CatalogModel): string;
 export declare function modelCost(_model: CatalogModel, _capability?: ModelsDevModel): ModelDefinition["cost"];
 export declare function modelRegistryCandidates(registry: ModelRegistry | undefined): RegistryCandidate[];
 export declare function modelCapability(model: CatalogModel, candidates: RegistryCandidate[]): ModelsDevModel | undefined;
-export declare function modelVariants(options: ReasoningOption[] | undefined, outputLimit: number): VariantMap;
-export declare function buildModels(models: CatalogModel[], candidates?: RegistryCandidate[]): ModelMap;
+export declare function modelVariants(options: ReasoningOption[] | undefined, _outputLimit: number): VariantMap;
+export type BuildModelsOptions = {
+    /** pi's `compact100` arm compacts at 100k instead of the default ceiling. */
+    compact100?: boolean;
+};
+export declare function buildModels(models: CatalogModel[], candidates?: RegistryCandidate[], options?: BuildModelsOptions): ModelMap;
