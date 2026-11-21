@@ -9,9 +9,29 @@
  */
 
 import type { Deps } from "../deps.js";
+import { trimSet } from "../utils/async.js";
+
+const DIRTY_LIMIT = 256;
 
 export function wireSessionID(deps: Deps, sessionID: string): string {
   return deps.state.wireSessions.get(sessionID) ?? sessionID;
+}
+
+/**
+ * Records that a turn ended without a clean stream (aborted, interrupted or
+ * failed mid-flight). The server can keep the per-session request slot locked
+ * in that case, so the next turn must not reuse the id: it would get a
+ * `429 concurrent` and OpenCode would show a retry. The next `model.request`
+ * rotates to a fresh id instead and the turn continues normally.
+ */
+export function markWireSessionDirty(deps: Deps, sessionID: string): void {
+  if (!sessionID) return;
+  deps.state.dirtySessions.add(sessionID);
+  trimSet(deps.state.dirtySessions, DIRTY_LIMIT);
+}
+
+export function takeWireSessionDirty(deps: Deps, sessionID: string): boolean {
+  return deps.state.dirtySessions.delete(sessionID);
 }
 
 /** Points the OpenCode session at a fresh wire id and returns it. */
@@ -24,4 +44,5 @@ export function rotateWireSessionID(deps: Deps, sessionID: string): string {
 
 export function forgetWireSessionID(deps: Deps, sessionID: string): void {
   deps.state.wireSessions.delete(sessionID);
+  deps.state.dirtySessions.delete(sessionID);
 }

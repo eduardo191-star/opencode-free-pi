@@ -16,6 +16,7 @@ export function createRuntimeState() {
         freePiSessions: new Set(),
         wireSessions: new Map(),
         replayBodies: new Map(),
+        dirtySessions: new Set(),
         finalizedSessions: new Set(),
         activeExecutions: new Set(),
         sessionActivity: new Map(),

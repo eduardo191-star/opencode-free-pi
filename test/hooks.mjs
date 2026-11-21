@@ -144,6 +144,20 @@ try {
   assert.equal(primary.headers["x-freepi-cost-exp"], "efficiency");
   assert.match(primary.headers["x-turn-id"], /^[0-9a-f-]{36}$/);
 
+  // A turn that ended mid-stream marks its wire id dirty; the next request
+  // rotates to a fresh id before going out, so the turn continues without
+  // hitting the stale per-session lock (and therefore without a retry).
+  deps.state.dirtySessions.add("ses_dirty");
+  const afterDirty = await invoke("model.request", "free-pi", {
+    sessionID: "ses_dirty",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    headers: {},
+  });
+  assert.match(afterDirty.headers["x-session-id"], /^ses_dirty-r/);
+  assert.equal(deps.state.dirtySessions.has("ses_dirty"), false);
+
   // Ad request headers carry the same turn plus the redacted context payload.
   const adCall = calls.find((call) => call.url.includes("/ads/next"));
   assert.ok(adCall, "an ad is requested for the turn");
@@ -470,6 +484,8 @@ try {
     decision: { retry: true, delay: 1_000 },
   });
   assert.deepEqual(aborted.decision, { retry: false });
+  // The next turn must not reuse the possibly locked id.
+  assert.equal(deps.state.dirtySessions.has("ses_abort"), true);
 
   // A transient capacity 429 still uses pi's retry policy.
   const capacity = await invoke("retry", "free-pi", {

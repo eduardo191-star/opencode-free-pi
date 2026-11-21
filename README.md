@@ -160,7 +160,10 @@ time») es la excepción: como OpenCode reutiliza la petición ya preparada al
 reintentar, el plugin **repite la petición** desde el hook de respuesta con un
 `x-session-id` nuevo y devuelve el resultado bueno a OpenCode; el turno continúa
 sin fallar ni mostrar reintentos. Además libera el id anterior, y si el replay no
-puede completarse el hook de reintento rota el id para los siguientes pasos. Si
+puede completarse el hook de reintento rota el id para los siguientes pasos. Un
+turno que se aborta o falla a mitad de stream marca su `x-session-id` como sucio:
+la siguiente petición arranca directamente con un id nuevo y libera el anterior,
+de modo que la sesión continúa sin interrupciones y sin pasar por un reintento. Si
 el catálogo asigna el experimento `compact100`, el plugin baja la ventana a 117
 647 tokens para que OpenCode compacte al llegar a 100k, que es el mismo umbral
 que consigue `reserveTokens: 100000` en el CLI.

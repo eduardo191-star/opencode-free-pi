@@ -11,7 +11,7 @@ import { watchFreePiNotice } from "./notices.js";
 import { rememberReplayBody, replayConcurrentResponse, } from "./replay.js";
 import { localTitle } from "./title.js";
 import { rememberFreePiSession } from "./track.js";
-import { rotateWireSessionID, wireSessionID } from "./wire.js";
+import { markWireSessionDirty, rotateWireSessionID, takeWireSessionDirty, wireSessionID, } from "./wire.js";
 import { recordCompaction, recordToolEnd, recordToolStart, toolHeaders, } from "./tools.js";
 import { rememberTrackedModel } from "./usage.js";
 const PENDING_LIMIT = 400;
@@ -78,6 +78,16 @@ async function applyModelRequest(deps, event) {
     rememberTrackedModel(deps, event.sessionID, providerID, event.model?.id ?? "");
     const agent = event.agent ?? (event.kind === "title" ? "title" : undefined);
     event.headers ??= {};
+    // A previous turn that was aborted, interrupted or failed mid-stream may have
+    // left its per-session request slot locked on the server. Rotating before the
+    // request goes out keeps this turn running instead of surfacing a 429 and a
+    // retry: the session simply continues under a fresh wire id.
+    if (takeWireSessionDirty(deps, event.sessionID)) {
+        const previous = wireSessionID(deps, event.sessionID);
+        const next = rotateWireSessionID(deps, event.sessionID);
+        void closeFreePiSession(deps, previous).catch(() => undefined);
+        deps.log.info("free-pi session ended mid-stream; continuing with a fresh session id", { sessionID: event.sessionID, from: previous, to: next });
+    }
     const token = await resolveToken(deps);
     if (token)
         event.headers.authorization = `Bearer ${token}`;
@@ -197,6 +207,9 @@ function applyRetryPolicy(deps, event) {
         return;
     }
     if (isTerminalFailure(event.error)) {
+        // Remember the broken stream too, so the next turn rotates its wire id
+        // instead of running into the stale per-session lock.
+        markWireSessionDirty(deps, event.sessionID);
         event.decision = { retry: false };
         return;
     }

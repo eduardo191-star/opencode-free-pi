@@ -15,7 +15,18 @@ import {
   finalizeFreePiSession,
   forgetFreePiSession,
 } from "./track.js";
+import {
+  markWireSessionDirty,
+} from "./wire.js";
 import { recordUsage } from "./usage.js";
+
+function isAbortLike(error: any): boolean {
+  if (!error) return false;
+  if (error.type === "aborted") return true;
+  return /aborted|cancelled|canceled|interrupted|AbortError/i.test(
+    `${error.message ?? ""}`,
+  );
+}
 
 const EVENT_TYPES = [
   "credential.updated",
@@ -63,6 +74,11 @@ async function handleEvent(
     }
     case "session.execution.failed": {
       const sessionID = event.data?.sessionID;
+      // A request that dies mid-stream can leave its slot locked on the server.
+      // The next turn will use a fresh wire id instead of waiting on a retry.
+      if (isAbortLike(event.data?.error)) {
+        markWireSessionDirty(deps, sessionID);
+      }
       await handleFreePiError(deps, event.data?.error, {
         allowRaw:
           typeof sessionID === "string" &&
@@ -71,8 +87,12 @@ async function handleEvent(
       endExecution(deps, sessionID);
       return;
     }
-    case "session.execution.succeeded":
+    case "session.execution.succeeded": {
+      endExecution(deps, event.data?.sessionID);
+      return;
+    }
     case "session.execution.interrupted": {
+      markWireSessionDirty(deps, event.data?.sessionID);
       endExecution(deps, event.data?.sessionID);
       return;
     }
