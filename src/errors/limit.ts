@@ -13,6 +13,7 @@ const LONG_LIMIT_CODES = new Set([
   "global_cap",
   "premium_allowance",
   "guest_allowance",
+  "free_usage_limit",
   "concurrent_session",
   "model_requires_credits",
   "insufficient_credits",

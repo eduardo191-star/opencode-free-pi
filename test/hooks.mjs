@@ -442,6 +442,38 @@ try {
   });
   assert.deepEqual(concurrentExhausted.decision, { retry: false });
 
+  // A terminal 429 (free usage limit) fails immediately instead of showing the
+  // endless "Retrying…" that OpenCode applies to every rate limit.
+  const terminal = await invoke("retry", "free-pi", {
+    sessionID: "ses_quota",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: {
+      type: "rate_limit",
+      status: 429,
+      message:
+        "Free usage limit reached. Free models work in OpenCode (https://opencode.ai); subscribe to OpenCode Go to keep going: https://opencode.ai/go",
+    },
+    attempt: 1,
+    decision: { retry: true, delay: 1_000 },
+  });
+  assert.deepEqual(terminal.decision, { retry: false });
+
+  // A transient capacity 429 still uses pi's retry policy.
+  const capacity = await invoke("retry", "free-pi", {
+    sessionID: "ses_capacity",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: {
+      type: "rate_limit",
+      status: 429,
+      message: "model is at capacity",
+    },
+    attempt: 2,
+    decision: { retry: true },
+  });
+  assert.deepEqual(capacity.decision, { retry: true, delay: 2_000 });
+
   // Cache misses are opt-in and need a real re-billed prompt.
   process.env.FREE_PI_CACHE_MISS_NOTICES = "1";
   deps.state.trackedModels.set("ses_cache", {

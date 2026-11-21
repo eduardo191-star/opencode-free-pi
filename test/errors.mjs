@@ -4,6 +4,7 @@ const { parseFreePiError, parseRawFreePiError } = await import(
   "../dist/errors/parse.js"
 );
 const { friendlyFreePiError } = await import("../dist/errors/messages.js");
+const { rewriteLimitResponse } = await import("../dist/errors/limit.js");
 
 // The free-usage-limit 429 sends a message but no `code` field; the parser
 // recovers the code from the text instead of logging `unknown`.
@@ -43,5 +44,32 @@ assert.equal(
   })?.code,
   "free_usage_limit",
 );
+
+// The free-usage 429 is terminal: rewriting it to a 400 stops OpenCode from
+// retrying it forever. A capacity 429 is transient and stays a 429.
+const usageResponse = new Response(
+  JSON.stringify({
+    code: "free_usage_limit",
+    message:
+      "Free usage limit reached. Free models work in OpenCode (https://opencode.ai); subscribe to OpenCode Go to keep going: https://opencode.ai/go",
+  }),
+  { status: 429, headers: { "content-type": "application/json" } },
+);
+const rewrittenUsage = await rewriteLimitResponse(usageResponse);
+assert.equal(rewrittenUsage?.status, 400);
+assert.equal(
+  rewrittenUsage.headers.get("x-free-pi-original-status"),
+  "429",
+);
+assert.match(
+  (await rewrittenUsage.json()).message,
+  /Free usage limit reached/,
+);
+
+const capacityResponse = new Response(
+  JSON.stringify({ code: "model_at_capacity", message: "model at capacity" }),
+  { status: 429, headers: { "content-type": "application/json" } },
+);
+assert.equal(await rewriteLimitResponse(capacityResponse), undefined);
 
 console.log("ok");

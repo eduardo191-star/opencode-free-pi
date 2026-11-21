@@ -26,6 +26,8 @@ const FREE_PI_ERROR_TEXT: Record<string, string> = {
     "Ads are not displaying for this account, so free completions are paused. Run `npx free-pi-cli@latest` so ads can show, then retry.",
   guest_allowance:
     "Guest trial used up; sign in with GitHub for a larger allowance.",
+  free_usage_limit:
+    "Free usage limit reached. Wait for the allowance to reset, switch models or add credits.",
   guest_unavailable: "Guest access is unavailable right now.",
   guest_login_required: "This needs a GitHub sign-in.",
   region_unavailable: "free-pi is not available in your region.",

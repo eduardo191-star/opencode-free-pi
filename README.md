@@ -151,12 +151,15 @@ consumo real se consulta en `/me` y `/me/stats` y se refleja en los mensajes de
 cuota y límite.
 
 Los reintentos siguen la política de pi: como máximo 3 reintentos, con espera
-`min(2s · 2^(n-1), 60s)`. El 429 `concurrent` («one request at a time») es la
-excepción: como el servidor puede dejar el slot de una sesión bloqueado, el
-plugin cambia el `x-session-id` de esa sesión, libera el anterior y reintenta
-hasta 6 veces con esperas de 1s a 15s. Si el catálogo asigna el experimento
-`compact100`, el plugin baja la ventana a 117 647 tokens para que OpenCode
-compacte al llegar a 100k, que es el mismo umbral que consigue
+`min(2s · 2^(n-1), 60s)`. Los límites terminales (`free_usage_limit`, cupos
+diarios u horarios, créditos, cuenta bloqueada) se convierten en un 400 con el
+mensaje amigable y no se reintentan, igual que hace el CLI de pi; así OpenCode no
+muestra un «Retrying…» que nunca termina. El 429 `concurrent` («one request at a
+time») es la excepción: como el servidor puede dejar el slot de una sesión
+bloqueado, el plugin cambia el `x-session-id` de esa sesión, libera el anterior y
+reintenta hasta 6 veces con esperas de 1s a 15s. Si el catálogo asigna el
+experimento `compact100`, el plugin baja la ventana a 117 647 tokens para que
+OpenCode compacte al llegar a 100k, que es el mismo umbral que consigue
 `reserveTokens: 100000` en el CLI.
 
 ## Rutas por plataforma

@@ -25,6 +25,7 @@ import {
   rewriteContextOverflowResponse,
   rewriteLimitResponse,
 } from "../errors/limit.js";
+import { parseFreePiError } from "../errors/parse.js";
 import { trimMap } from "../utils/async.js";
 import { watchFreePiNotice } from "./notices.js";
 import { localTitle } from "./title.js";
@@ -196,6 +197,49 @@ function isConcurrentFailure(error: any): boolean {
 }
 
 /**
+ * Limits and account blocks do not recover by retrying. pi's own retry helper
+ * treats them as terminal (`NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN`), but
+ * OpenCode retries every 429 by default, which surfaces as an endless
+ * "Retrying…". The response rewrite turns most of these into a 400; this guard
+ * covers the rest and keeps the CLI's behavior.
+ */
+const TERMINAL_RETRY_CODES = new Set([
+  "daily_cap",
+  "hourly_ceiling",
+  "rolling_cap",
+  "global_cap",
+  "account_ceiling",
+  "free_usage_limit",
+  "premium_allowance",
+  "guest_allowance",
+  "model_requires_credits",
+  "insufficient_credits",
+  "ads_required",
+  "account_review",
+  "region_unavailable",
+  "unauthorized",
+  "expired_token",
+  "guest_login_required",
+  "consent_required",
+  "upgrade_required",
+  "reward_required",
+  "content_filter",
+  "subagents_unavailable",
+]);
+
+const TERMINAL_RETRY_PATTERN =
+  /free usage limit|monthly usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing|subscription_sharing_usage_limit_exceeded/i;
+
+function isTerminalFailure(error: any): boolean {
+  const parsed = parseFreePiError(error, true);
+  if (parsed?.code && TERMINAL_RETRY_CODES.has(parsed.code)) return true;
+  const body =
+    typeof error?.response?.body === "string" ? error.response.body : "";
+  const message = typeof error?.message === "string" ? error.message : "";
+  return TERMINAL_RETRY_PATTERN.test(`${message}\n${body}`);
+}
+
+/**
  * pi retries at most three times with `min(2s * 2^(n-1), 60s)`. OpenCode's
  * `attempt` counts the initial call as 1, so pi's attempt is `attempt - 1`.
  * Non-retryable decisions are left alone.
@@ -228,6 +272,10 @@ function applyRetryPolicy(deps: Deps, event: any): void {
         CONCURRENT_RETRY_MAX_DELAY_MS,
       ),
     };
+    return;
+  }
+  if (isTerminalFailure(event.error)) {
+    event.decision = { retry: false };
     return;
   }
   if (event.attempt > RETRY_MAX_RETRIES + 1) {
