@@ -2,6 +2,25 @@
 import { randomUUID } from "node:crypto";
 import { adContextFor, latestAssistantText, latestUserMessageID, latestUserText, } from "./context.js";
 import { adTurnKey, getAdTurn, rememberAdTurn } from "./turns.js";
+function userMessageCount(messages) {
+    let count = 0;
+    for (const message of messages) {
+        const role = message.role ?? message.type;
+        if (role === "user")
+            count += 1;
+    }
+    return count;
+}
+/**
+ * Stable, id-free turn fingerprint. Provider request messages usually carry the
+ * stored user message id, but not always; without one the ad turn would never
+ * rotate and the provider would keep answering with the same ad (or fail once
+ * it expires). The user-message count plus the latest prompt changes exactly
+ * when the user sends a new turn.
+ */
+function turnFingerprint(messages) {
+    return `${userMessageCount(messages)}:${latestUserText(messages).slice(0, 160)}`;
+}
 /**
  * Uses the request messages for primary requests and the stored session for
  * auxiliary ones, where the request messages are synthetic (for example a
@@ -15,12 +34,22 @@ async function contextMessages(deps, request) {
     return stored.length > 0 ? stored : provided;
 }
 export async function resolveAdTurn(deps, request) {
-    const messages = await contextMessages(deps, request);
-    const messageID = latestUserMessageID(messages) ??
-        latestUserMessageID(request.messages ?? []);
+    let messages = await contextMessages(deps, request);
+    let messageID = latestUserMessageID(messages);
+    if (!messageID) {
+        // The provider messages often omit ids; the stored session keeps them, so
+        // use it to keep one ad per user turn instead of one per session.
+        const stored = await deps.readContext(request.sessionID).catch(() => []);
+        messageID = latestUserMessageID(stored);
+        if (messages.length === 0 && stored.length > 0)
+            messages = stored;
+    }
+    if (!messageID) {
+        messageID = latestUserMessageID(request.messages ?? []);
+    }
     const key = messageID
         ? adTurnKey(messageID, request.agent)
-        : `${request.sessionID}\u0000${request.agent ?? ""}`;
+        : `${request.sessionID}\u0000${request.agent ?? ""}\u0000${turnFingerprint(messages)}`;
     let turn = getAdTurn(deps, key);
     if (!turn) {
         turn = rememberAdTurn(deps, key, {

@@ -10,6 +10,11 @@ export const CONSENT_VERSION = "4";
 export const CONTEXT_WINDOW = 200_000;
 export const MAX_OUTPUT_TOKENS = 32_768;
 export const AD_CONTEXT_HEADER = "x-ad-context";
+/**
+ * The CLI sends `none` when the ad context is unavailable or private instead of
+ * omitting the header; the server expects the explicit opt-out to rotate ads.
+ */
+export const AD_CONTEXT_OPT_OUT = "none";
 export const SUBAGENT_HEADER = "x-freepi-subagent";
 export const COST_EXPERIMENT_HEADER = "x-freepi-cost-exp";
 export const EFFICIENCY_RULE = "- When several independent reads or searches are needed, issue them in the same turn.";

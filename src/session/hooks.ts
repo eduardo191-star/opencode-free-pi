@@ -6,6 +6,8 @@ import { resolveAdTurn } from "../ads/resolve.js";
 import type { AdTurn } from "../types.js";
 import { resolveToken } from "../auth/token.js";
 import {
+  AD_CONTEXT_HEADER,
+  AD_CONTEXT_OPT_OUT,
   COST_EXPERIMENT_HEADER,
   CONCURRENT_RETRY_BASE_MS,
   CONCURRENT_RETRY_MAX,
@@ -201,6 +203,12 @@ async function applyModelRequest(deps: Deps, event: any): Promise<void> {
   if (!turn) return;
 
   event.headers["x-turn-id"] = turn.turnId;
+  // The provider expects ad context on every request of the turn; compaction
+  // reuses the turn but explicitly opts out so it never rotates the ad.
+  event.headers[AD_CONTEXT_HEADER] =
+    event.kind === "compaction"
+      ? AD_CONTEXT_OPT_OUT
+      : (turn.context ?? AD_CONTEXT_OPT_OUT);
   if (token) {
     // V1 awaited the first ad fetch for the turn so the impression lands
     // before the model request. Later steps reuse the settled promise.

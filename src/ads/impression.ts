@@ -2,6 +2,7 @@
 
 import {
   AD_CONTEXT_HEADER,
+  AD_CONTEXT_OPT_OUT,
   AD_IMPRESSION_LIMIT,
   AD_IMPRESSION_TIMEOUT_MS,
   AD_REQUEST_TIMEOUT_MS,
@@ -84,7 +85,7 @@ export async function fetchAdAndPostImpression(
       "x-turn-id": turn.turnId,
       "x-ad-trigger": "user_message",
       ...adClientHeaders(),
-      ...(turn.context ? { [AD_CONTEXT_HEADER]: turn.context } : {}),
+      [AD_CONTEXT_HEADER]: turn.context ?? AD_CONTEXT_OPT_OUT,
     };
     const response = await fetch(`${resolveBaseUrl()}/ads/next?slot=banner`, {
       headers,

@@ -2,7 +2,7 @@
 import { ensureAdImpression } from "../ads/impression.js";
 import { resolveAdTurn } from "../ads/resolve.js";
 import { resolveToken } from "../auth/token.js";
-import { COST_EXPERIMENT_HEADER, CONCURRENT_RETRY_BASE_MS, CONCURRENT_RETRY_MAX, CONCURRENT_RETRY_MAX_DELAY_MS, DEFENSE_PROVIDER_ID, EFFICIENCY_RULE, MAX_OUTPUT_TOKENS, PROVIDER_ID, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, SUBAGENT_HEADER, } from "../constants.js";
+import { AD_CONTEXT_HEADER, AD_CONTEXT_OPT_OUT, COST_EXPERIMENT_HEADER, CONCURRENT_RETRY_BASE_MS, CONCURRENT_RETRY_MAX, CONCURRENT_RETRY_MAX_DELAY_MS, DEFENSE_PROVIDER_ID, EFFICIENCY_RULE, MAX_OUTPUT_TOKENS, PROVIDER_ID, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, SUBAGENT_HEADER, } from "../constants.js";
 import { closeFreePiSession } from "../api/session.js";
 import { rewriteContextOverflowResponse, rewriteLimitResponse, } from "../errors/limit.js";
 import { parseFreePiError } from "../errors/parse.js";
@@ -120,6 +120,12 @@ async function applyModelRequest(deps, event) {
     if (!turn)
         return;
     event.headers["x-turn-id"] = turn.turnId;
+    // The provider expects ad context on every request of the turn; compaction
+    // reuses the turn but explicitly opts out so it never rotates the ad.
+    event.headers[AD_CONTEXT_HEADER] =
+        event.kind === "compaction"
+            ? AD_CONTEXT_OPT_OUT
+            : (turn.context ?? AD_CONTEXT_OPT_OUT);
     if (token) {
         // V1 awaited the first ad fetch for the turn so the impression lands
         // before the model request. Later steps reuse the settled promise.

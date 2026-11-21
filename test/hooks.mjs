@@ -143,6 +143,63 @@ try {
   assert.equal(primary.headers["x-client-version"], "9.9.9");
   assert.equal(primary.headers["x-freepi-cost-exp"], "efficiency");
   assert.match(primary.headers["x-turn-id"], /^[0-9a-f-]{36}$/);
+  const primaryAdContext = JSON.parse(
+    Buffer.from(primary.headers["x-ad-context"], "base64url").toString("utf8"),
+  );
+  assert.equal(primaryAdContext.user, "hello from the user");
+
+  // A new user message rotates the ad turn (new x-turn-id) while keeping the
+  // same provider session. This is what keeps free-pi from reusing a stale ad.
+  await invoke("context", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    system: [],
+    messages: [
+      {
+        id: "msg_parent_2",
+        role: "user",
+        content: [{ type: "text", text: "second turn" }],
+      },
+    ],
+    options: {},
+  });
+  const secondTurn = await invoke("model.request", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    headers: {},
+  });
+  assert.notEqual(secondTurn.headers["x-turn-id"], primary.headers["x-turn-id"]);
+
+  // Provider messages without ids must still rotate: the fingerprint changes
+  // when the user message count does, so no ad is reused across turns.
+  const noIdTurn = async (texts) => {
+    await invoke("context", "free-pi", {
+      sessionID: "ses_noid",
+      agent: "build",
+      kind: "primary",
+      model: { providerID: "free-pi", id: "hy4-flash" },
+      system: [],
+      messages: texts.map((text) => ({
+        role: "user",
+        content: [{ type: "text", text }],
+      })),
+      options: {},
+    });
+    return invoke("model.request", "free-pi", {
+      sessionID: "ses_noid",
+      agent: "build",
+      kind: "primary",
+      model: { providerID: "free-pi", id: "hy4-flash" },
+      headers: {},
+    });
+  };
+  const noIdFirst = await noIdTurn(["first prompt"]);
+  const noIdSecond = await noIdTurn(["first prompt", "second prompt"]);
+  assert.notEqual(noIdFirst.headers["x-turn-id"], noIdSecond.headers["x-turn-id"]);
 
   // A turn that ended mid-stream marks its wire id dirty; the next request
   // rotates to a fresh id before going out, so the turn continues without
@@ -363,6 +420,16 @@ try {
     headers: {},
   });
   assert.equal(afterCompaction.headers["x-freepi-compacted"], "v1:3");
+
+  // Compaction reuses the current turn but opts out of ad context.
+  const compactionRequest = await invoke("model.request", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "compaction",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    headers: {},
+  });
+  assert.equal(compactionRequest.headers["x-ad-context"], "none");
 
   // Retry follows pi's 3 attempts, 2s base and 60s cap.
   const retry = await invoke("retry", "free-pi", {
