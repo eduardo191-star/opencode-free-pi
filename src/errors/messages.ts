@@ -67,6 +67,7 @@ const FREE_PI_ERROR_TITLE: Record<string, string> = {
   unauthorized: "free-pi sign-in",
   expired_token: "free-pi sign-in",
   guest_allowance: "free-pi sign-in",
+  free_usage_limit: "free-pi free limit",
   guest_login_required: "free-pi sign-in",
   guest_unavailable: "free-pi sign-in",
   consent_required: "free-pi consent",

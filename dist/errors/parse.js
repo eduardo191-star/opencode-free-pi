@@ -27,6 +27,10 @@ const RAW_FREE_PI_ERROR_PATTERNS = [
     ],
     [/guest trial used up|guest_allowance/i, "guest_allowance"],
     [
+        /free usage limit|monthly usage limit/i,
+        "free_usage_limit",
+    ],
+    [
         /needs a github sign-in|sign in with github|guest_login_required/i,
         "guest_login_required",
     ],
@@ -91,11 +95,26 @@ export function parseRawFreePiError(error) {
     }
     return undefined;
 }
+/**
+ * Recovers a code from the server's message text when the envelope carries no
+ * `code` field, for example the free-usage-limit 429 that only sends a message.
+ */
+function codeFromText(message) {
+    if (typeof message !== "string" || !message.trim())
+        return undefined;
+    const text = message.trim();
+    for (const [pattern, code] of RAW_FREE_PI_ERROR_PATTERNS) {
+        if (pattern.test(text))
+            return code;
+    }
+    return undefined;
+}
 export function parseFreePiError(error, allowRaw = false) {
     const candidates = [
         error?.response?.body,
         error?.data?.responseBody,
         error?.responseBody,
+        error?.data,
         error?.data?.message,
         error?.message,
     ];
@@ -129,7 +148,7 @@ export function parseFreePiError(error, allowRaw = false) {
             ? codeValue
             : status === 401
                 ? "unauthorized"
-                : undefined;
+                : codeFromText(message);
         if (!code && typeof message !== "string")
             continue;
         return {
