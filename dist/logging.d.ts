@@ -1,4 +1,4 @@
-/** Logging for the plugin. V2 has no `app.log`, so messages go to the console. */
+/** Logging for the plugin. V2 has no `app.log`, so messages go to the console and a file. */
 export type LogLevel = "info" | "warn" | "error" | "debug";
 export type Logger = {
     log: (level: LogLevel, message: string, extra?: unknown) => void;

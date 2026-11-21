@@ -55,10 +55,13 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
     },
   };
 
-  const [catalog, registry] = await Promise.all([
+  const [catalogResult, registryResult] = await Promise.all([
     settle(fetchCatalog(deps), undefined),
     settle(fetchModelsRegistry(deps), undefined),
   ]);
+  // The fetch may finish just after `settle` gives up; reuse whatever landed.
+  const catalog = catalogResult ?? state.cachedCatalog;
+  const registry = registryResult ?? state.cachedRegistry;
   const { main, defense } = partitionModels(catalog);
   const candidates = modelRegistryCandidates(registry);
   const mainModels = buildModels(main, candidates);

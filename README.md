@@ -73,6 +73,9 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   plugin finaliza la sesión del proveedor cuando la ejecución del modelo
   termina (éxito, fallo o interrupción) y al apagar OpenCode.
 - Recuperación automática del límite de sesiones concurrentes.
+- **Catálogo y metadatos resistentes**: el catálogo de free-pi y el registro de
+  models.dev se guardan en disco; si la red falla al arrancar se usan las copias
+  locales en vez de quedarse sin modelos o sin límites de contexto.
 - Compatible con rutas, credenciales y navegador de cada sistema operativo.
 
 No incluye herramientas personalizadas. Usa las herramientas integradas de
@@ -116,8 +119,37 @@ Si `XDG_CONFIG_HOME` o `OPENCODE_CONFIG_DIR` están definidos, se respetan.
 | `FREEPI_DEVICE_LOGIN=1`   | Forzar inicio de sesión por dispositivo.             |
 | `FREEPI_CONFIGURE=1`      | Registrar el paquete en `opencode.json` al instalar. |
 | `OPENCODE_CONFIG_DIR`     | Directorio de configuración de OpenCode.             |
+| `FREE_PI_CACHE_DIR`       | Directorio de caché del plugin.                      |
+| `FREE_PI_LOG_FILE`        | Ruta alternativa del archivo de log del plugin.      |
 
 No hay variables obligatorias.
+
+## Caché y logs
+
+El plugin guarda el catálogo de free-pi y el registro de models.dev en:
+
+```text
+~/.cache/opencode/free-pi/catalog.json
+~/.cache/opencode/free-pi/models-dev.json
+```
+
+En Windows es `%USERPROFILE%\.cache\opencode\free-pi\`. El catálogo se reutiliza
+hasta 24 h y el registro hasta 7 días si la red falla; cuando la petición
+funciona, las copias se refrescan solas.
+
+Los mensajes del plugin se escriben en la consola con el prefijo `[free-pi]` y
+también en:
+
+```text
+~/.cache/opencode/free-pi/plugin.log
+```
+
+El archivo rota a `plugin.log.1` al llegar a 1 MB. Ejemplo:
+
+```text
+2026-11-21T08:20:00.000Z INFO [free-pi] Loaded 20 free-pi model(s) and 7 defense model(s)
+2026-11-21T08:20:00.000Z WARN [free-pi] models.dev is unreachable; using cached model metadata {"reason":"request timed out"}
+```
 
 ## Instalación rápida con script
 
@@ -177,10 +209,11 @@ src/
   errors/               parseo, mensajes y reescritura de límites
   integration/          integración y métodos de inicio de sesión
   session/              hooks, eventos, seguimiento y uso
-  utils/                helpers pequeños
+  utils/                helpers pequeños (incluye cache.ts)
 dist/                   build ESM y tipos
 scripts/postinstall.mjs registro en opencode.json
 test/smoke.mjs          prueba de humo del build
+test/registry.mjs       caché y tolerancia a fallos de models.dev
 ```
 
 ## Desinstalar
