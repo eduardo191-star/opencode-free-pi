@@ -212,6 +212,20 @@ export function settleWindow(samples) {
     return Math.min(MAX_WINDOW, Math.max(MIN_WINDOW, Math.floor((best * WINDOW_SAFETY) / 1_000) * 1_000));
 }
 /**
+ * Stores a measured window and writes it immediately. Called after every
+ * accepted probe, so a process that exits mid-verification keeps the smallest
+ * proven value instead of losing the whole run.
+ */
+async function commitWindow(deps, tokens, modelID) {
+    const limits = (cached ??= emptyLimits());
+    if (limits.window && limits.window.tokens >= tokens)
+        return limits.window.tokens;
+    limits.window = { tokens, verifiedAt: Date.now(), model: modelID };
+    loaded = true;
+    await persist();
+    return tokens;
+}
+/**
  * Checks the compiled window against the gateway and then grows past it while
  * the gateway keeps accepting larger prompts. The start value is a floor, not a
  * ceiling: the server has no endpoint for its real limit, and pinning sessions
@@ -231,6 +245,8 @@ export async function verifyGatewayWindow(deps, options = {}) {
     let accepted = 0;
     let charsPerToken = INITIAL_CHARS_PER_TOKEN;
     let target = Math.max(MIN_WINDOW, Math.min(fallback, MAX_WINDOW));
+    let verified;
+    const floor = Math.min(fallback, CONTEXT_WINDOW);
     for (let attempt = 0; attempt < MAX_PROBES; attempt += 1) {
         const chars = Math.max(MIN_WINDOW * charsPerToken, Math.floor(target * charsPerToken * 0.99));
         const result = await sendProbe(deps, modelID, chars);
@@ -238,7 +254,7 @@ export async function verifyGatewayWindow(deps, options = {}) {
             // A network failure or a rejected body proves nothing; keep what the
             // earlier probes already established.
             if (samples.length === 0)
-                return undefined;
+                return verified;
             break;
         }
         if (result.status === "too_long") {
@@ -247,7 +263,7 @@ export async function verifyGatewayWindow(deps, options = {}) {
                 // The compiled window itself is too large: step down as before.
                 target = Math.floor(target * 0.85);
                 if (target < MIN_WINDOW)
-                    return undefined;
+                    break;
                 continue;
             }
             const next = Math.floor((accepted + target) / 2);
@@ -271,6 +287,11 @@ export async function verifyGatewayWindow(deps, options = {}) {
         else {
             accepted = Math.floor(chars / charsPerToken);
         }
+        const settled = settleWindow(samples);
+        if (settled) {
+            // Never go below the window that already worked for this account.
+            verified = await commitWindow(deps, Math.max(settled, floor), modelID);
+        }
         if (accepted >= MAX_WINDOW)
             break;
         const next = Math.min(MAX_WINDOW, Math.floor(accepted * 1.2));
@@ -278,17 +299,8 @@ export async function verifyGatewayWindow(deps, options = {}) {
             break;
         target = next;
     }
-    const settled = settleWindow(samples);
-    if (!settled)
+    if (!verified)
         return undefined;
-    // Keep the previous floor when growth probes only prove less: the CLI's 200k
-    // is already known to work, so a small upstream probe model must not shrink
-    // every session's window.
-    const verified = Math.max(settled, Math.min(fallback, CONTEXT_WINDOW));
-    const limits = (cached ??= emptyLimits());
-    limits.window = { tokens: verified, verifiedAt: Date.now(), model: modelID };
-    loaded = true;
-    await persist();
     deps.log.info("free-pi verified the gateway context window", {
         model: modelID,
         window: verified,
