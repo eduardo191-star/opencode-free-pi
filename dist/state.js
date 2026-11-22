@@ -17,6 +17,7 @@ export function createRuntimeState() {
         wireSessions: new Map(),
         wireHydrated: new Set(),
         replayBodies: new Map(),
+        spuriousOverflows: new Map(),
         dirtySessions: new Set(),
         finalizedSessions: new Set(),
         activeExecutions: new Set(),

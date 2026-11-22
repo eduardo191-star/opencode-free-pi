@@ -8,7 +8,8 @@ import { rewriteContextOverflowResponse, rewriteLimitResponse, } from "../errors
 import { parseFreePiError } from "../errors/parse.js";
 import { trimMap } from "../utils/async.js";
 import { watchFreePiNotice } from "./notices.js";
-import { rememberReplayBody, replayConcurrentResponse, } from "./replay.js";
+import { clearSpuriousOverflows, noteSpuriousOverflow, overflowingSpuriously, spuriousOverflowResponse, } from "./overflow.js";
+import { rememberReplayBody, replayConcurrentResponse, replaySpuriousOverflow, } from "./replay.js";
 import { localTitle } from "./title.js";
 import { rememberFreePiSession } from "./track.js";
 import { hydrateWireSessionID, markWireSessionDirty, rotateWireSessionID, takeWireSessionDirty, wireSessionID, } from "./wire.js";
@@ -307,6 +308,31 @@ export async function registerSessionHooks(ctx, deps) {
         // become a 400 overflow, not a friendly long-lived limit.
         const overflow = await rewriteContextOverflowResponse(response).catch(() => undefined);
         if (overflow) {
+            const code = overflow.headers.get("x-free-pi-original-code") ?? "context_overflow";
+            // A gateway failure can report "too long" for a request that fits the
+            // window. Compacting then loops, so retry on a fresh wire session
+            // first, and stop compacting once the session has seen a few.
+            const reviewed = await replaySpuriousOverflow(deps, event).catch(() => ({}));
+            if (reviewed.response) {
+                clearSpuriousOverflows(deps, event.sessionID);
+                event.response = watchFreePiNotice(deps, reviewed.response);
+                return;
+            }
+            if (reviewed.spurious) {
+                const count = noteSpuriousOverflow(deps, event.sessionID);
+                deps.log.info("free-pi rejected a request as too long that fits the model window", {
+                    sessionID: event.sessionID,
+                    code,
+                    tokens: reviewed.tokens,
+                    rejections: count,
+                });
+                if (overflowingSpuriously(deps, event.sessionID)) {
+                    markWireSessionDirty(deps, event.sessionID);
+                    deps.log.warn("compact loop stopped: free-pi keeps rejecting a request that fits", { sessionID: event.sessionID, code, tokens: reviewed.tokens });
+                    event.response = watchFreePiNotice(deps, spuriousOverflowResponse(overflow));
+                    return;
+                }
+            }
             event.response = watchFreePiNotice(deps, overflow);
             return;
         }

@@ -21,3 +21,22 @@ export declare function rememberReplayBody(deps: Deps, event: any): Promise<void
  * `undefined` to leave the original response untouched.
  */
 export declare function replayConcurrentResponse(deps: Deps, event: any): Promise<Response | undefined>;
+export type OverflowReplay = {
+    /** Tokens of the rejected request, when its body was available. */
+    readonly tokens?: number;
+    /** Whether the rejected request plainly fits the model window. */
+    readonly spurious?: boolean;
+    /** A good response from a fresh wire session, when the retry succeeded. */
+    readonly response?: Response;
+};
+/**
+ * Retries an overflow rejection whose request plainly fits the model window.
+ *
+ * free-pi reports `context_ceiling`/`context_too_long` from the upstream
+ * model, and a failing gateway can report them for a small prompt. Compacting
+ * cannot fix that: the summary is accepted, the next turn is rejected the same
+ * way, and the runner compacts again. A fresh wire session is the cheapest
+ * recovery, so a small request is replayed on one before the overflow is
+ * handed to the runner.
+ */
+export declare function replaySpuriousOverflow(deps: Deps, event: any): Promise<OverflowReplay>;

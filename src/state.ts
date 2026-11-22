@@ -53,6 +53,8 @@ export type RuntimeState = {
   wireSessions: Map<string, string>;
   wireHydrated: Set<string>;
   replayBodies: Map<string, string>;
+  /** Rejections of requests that fit the model window, per session. */
+  spuriousOverflows: Map<string, { at: number; count: number }>;
   dirtySessions: Set<string>;
   finalizedSessions: Set<string>;
   activeExecutions: Set<string>;
@@ -96,6 +98,7 @@ export function createRuntimeState(): RuntimeState {
     wireSessions: new Map(),
     wireHydrated: new Set(),
     replayBodies: new Map(),
+    spuriousOverflows: new Map(),
     dirtySessions: new Set(),
     finalizedSessions: new Set(),
     activeExecutions: new Set(),

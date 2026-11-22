@@ -111,6 +111,24 @@ function contextOverflowCode(body: string): string | undefined {
   return undefined;
 }
 
+/** The free-pi overflow code carried by a response, when it is one. */
+export async function overflowCodeOf(
+  response: Response,
+): Promise<string | undefined> {
+  if (
+    response.status !== 413 &&
+    response.status !== 429 &&
+    response.status !== 400
+  )
+    return undefined;
+  const body = await response
+    .clone()
+    .text()
+    .catch(() => "");
+  if (!body) return undefined;
+  return contextOverflowCode(body);
+}
+
 /**
  * Returns a replacement response when `response` is a free-pi context overflow.
  * The replacement is a 400 with a message OpenCode recognizes as context

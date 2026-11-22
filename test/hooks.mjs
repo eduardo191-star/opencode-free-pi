@@ -796,6 +796,158 @@ try {
   );
   assert.match(await ceilingEvent.response.text(), /prompt is too long/i);
 
+  // A gateway that reports an overflow for a small request is failing, not
+  // overflowing: the request is replayed on a fresh wire session instead of
+  // asking OpenCode to compact a conversation that already fits.
+  {
+    const originalFetch = globalThis.fetch;
+    const attempts = [];
+    globalThis.fetch = async (input, init = {}) => {
+      const headers = new Headers(init.headers ?? {});
+      const sid = headers.get("x-session-id");
+      attempts.push(sid);
+      if (sid && sid.includes("-r")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ code: "context_ceiling" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const smallBody = JSON.stringify({
+      model: "hy4-flash",
+      messages: [{ role: "user", content: "x".repeat(4_000) }],
+    });
+    const smallRequest = new Request("https://api.test/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-session-id": "ses_spurious",
+        "x-turn-id": "turn-spurious",
+      },
+      body: smallBody,
+    });
+    const spuriousModel = { providerID: "free-pi", id: "hy4-flash" };
+    await invoke("http.request", "free-pi", {
+      sessionID: "ses_spurious",
+      agent: "build",
+      kind: "primary",
+      model: spuriousModel,
+      request: smallRequest,
+    });
+    const recoveredEvent = await invoke("http.response", "free-pi", {
+      sessionID: "ses_spurious",
+      agent: "build",
+      kind: "primary",
+      model: spuriousModel,
+      request: smallRequest,
+      response: new Response(JSON.stringify({ code: "context_ceiling" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      }),
+    });
+    assert.equal(recoveredEvent.response.status, 200);
+    assert.deepEqual(await recoveredEvent.response.json(), { ok: true });
+    assert.ok(
+      attempts.some((sid) => sid?.startsWith("ses_spurious-r")),
+      JSON.stringify(attempts),
+    );
+
+    // The same rejection for a conversation that really is huge stays an
+    // overflow, so the runner compacts and retries as usual.
+    const hugeBody = JSON.stringify({
+      model: "hy4-flash",
+      messages: [{ role: "user", content: "x".repeat(400_000) }],
+    });
+    const hugeRequest = new Request("https://api.test/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-session-id": "ses_huge",
+        "x-turn-id": "turn-huge",
+      },
+      body: hugeBody,
+    });
+    attempts.length = 0;
+    await invoke("http.request", "free-pi", {
+      sessionID: "ses_huge",
+      agent: "build",
+      kind: "primary",
+      model: spuriousModel,
+      request: hugeRequest,
+    });
+    const hugeEvent = await invoke("http.response", "free-pi", {
+      sessionID: "ses_huge",
+      agent: "build",
+      kind: "primary",
+      model: spuriousModel,
+      request: hugeRequest,
+      response: new Response(JSON.stringify({ code: "context_too_long" }), {
+        status: 413,
+        headers: { "content-type": "application/json" },
+      }),
+    });
+    assert.equal(hugeEvent.response.status, 400);
+    assert.equal(attempts.length, 0);
+    assert.match(await hugeEvent.response.text(), /prompt is too long/i);
+    globalThis.fetch = originalFetch;
+  }
+
+  // After a few rejections of requests that fit, another compaction would only
+  // spend credits: the error stops looking like an overflow and the next turn
+  // rotates the wire session.
+  {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ code: "context_ceiling" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    const stormModel = { providerID: "free-pi", id: "hy4-flash" };
+    let stormEvent;
+    for (let index = 0; index < 4; index++) {
+      const request = new Request("https://api.test/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-session-id": "ses_storm",
+          "x-turn-id": `turn-storm-${index}`,
+        },
+        body: JSON.stringify({
+          model: "hy4-flash",
+          messages: [{ role: "user", content: "x".repeat(4_000) }],
+        }),
+      });
+      await invoke("http.request", "free-pi", {
+        sessionID: "ses_storm",
+        agent: "build",
+        kind: "primary",
+        model: stormModel,
+        request,
+      });
+      stormEvent = await invoke("http.response", "free-pi", {
+        sessionID: "ses_storm",
+        agent: "build",
+        kind: "primary",
+        model: stormModel,
+        request,
+        response: new Response(JSON.stringify({ code: "context_ceiling" }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        }),
+      });
+    }
+    const stormBody = await stormEvent.response.text();
+    assert.match(stormBody, /provider failure, not a context overflow/i);
+    assert.doesNotMatch(stormBody, /prompt is too long/i);
+    assert.equal(stormEvent.response.status, 400);
+    assert.equal(deps.state.dirtySessions.has("ses_storm"), true);
+    globalThis.fetch = originalFetch;
+  }
+
   // Usage tracking feeds the quota endpoint.
   deps.state.trackedModels.set("ses_parent", {
     providerID: "free-pi",
@@ -821,7 +973,10 @@ try {
     "usage refreshes the free-pi quota",
   );
 
-  assert.equal(warnings.length, 0, JSON.stringify(warnings));
+  const unexpected = warnings.filter(
+    (entry) => !/compact loop stopped/i.test(entry.message),
+  );
+  assert.equal(unexpected.length, 0, JSON.stringify(warnings));
   console.log("ok");
 } finally {
   globalThis.fetch = realFetch;

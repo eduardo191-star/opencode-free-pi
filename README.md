@@ -74,6 +74,12 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - **Compactación integrada**: los errores `context_too_long` de free-pi se
   reescriben para que OpenCode los reconozca como desbordamiento de contexto y
   ejecute `/compact` automáticamente en vez de terminar el turno.
+- **Sin bucles de compactación**: si el servidor rechaza como «demasiado
+  largo» una petición que cabe de sobra en la ventana (menos de 60k tokens),
+  el plugin la reintenta con un `x-session-id` nuevo en vez de compactar. Si
+  aun así la sigue rechazando, devuelve un error de proveedor que OpenCode no
+  clasifica como desbordamiento, para no gastar créditos en resúmenes que no
+  arreglan nada.
 - **Títulos locales**: OpenCode pide un título al modelo al crear una sesión.
   El plugin lo responde con la primera línea del primer mensaje, sin gastar
   créditos, sin pedir un anuncio y sin dejar la sesión atascada en
@@ -270,6 +276,13 @@ amigable, igual que en el plugin V1. Las respuestas `413` (o `429`/`400`) con
 código `context_too_long`, `context_too_long_for_fallback` o `context_ceiling`
 se reescriben a un `400` con el texto que OpenCode clasifica como
 desbordamiento de contexto, para que dispare la compactación automática.
+
+El plugin mide el cuerpo de cada petición rechazada. Cuando el rechazo llega
+con un cuerpo que no puede agotar la ventana, lo trata como un fallo del
+proveedor: repite la petición con un `x-session-id` nuevo y, si el servidor
+insiste, devuelve un `400` con un mensaje de error de proveedor. Ese texto no
+coincide con el patrón de desbordamiento de OpenCode, así que el runner deja de
+compactar en lugar de entrar en un ciclo de resúmenes que no reducen nada.
 
 free-pi cobra en créditos contra una cuota diaria, no en USD por token. Por
 eso los modelos se registran con costo `0`, igual que el CLI del proveedor; el

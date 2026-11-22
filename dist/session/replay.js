@@ -14,12 +14,16 @@
  * without a visible "Retrying…" or a failed step.
  */
 import { closeFreePiSession } from "../api/session.js";
+import { overflowCodeOf } from "../errors/limit.js";
 import { sleep, trimMap } from "../utils/async.js";
+import { measureRequestTokens, SPURIOUS_OVERFLOW_TOKENS, } from "./overflow.js";
 import { rotateWireSessionID, wireSessionID } from "./wire.js";
 const REPLAY_BODY_LIMIT = 24;
 const REPLAY_MAX_ATTEMPTS = 4;
 const REPLAY_BASE_DELAY_MS = 400;
 const REPLAY_MAX_DELAY_MS = 3_000;
+/** A rejected request that fits is retried only this many times on fresh ids. */
+const OVERFLOW_REPLAY_ATTEMPTS = 2;
 function requestKey(sessionID, request) {
     const turn = request.headers.get("x-turn-id") ?? "";
     return `${sessionID}\u0000${turn}\u0000${request.url}`;
@@ -54,6 +58,21 @@ async function isConcurrent(response) {
         .catch(() => "");
     return /"concurrent"/i.test(body) || /one request at a time/i.test(body);
 }
+/** The request body, either remembered before the send or re-read from it. */
+async function storedBody(deps, event) {
+    const request = event?.request;
+    if (!(request instanceof Request) || !event.sessionID)
+        return;
+    const remembered = deps.state.replayBodies.get(requestKey(event.sessionID, request));
+    if (remembered !== undefined)
+        return remembered;
+    if (!isJson(request))
+        return;
+    return request
+        .clone()
+        .text()
+        .catch(() => undefined);
+}
 function concurrentDelay(attempt) {
     return Math.min(REPLAY_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1), REPLAY_MAX_DELAY_MS);
 }
@@ -70,13 +89,7 @@ export async function replayConcurrentResponse(deps, event) {
         return;
     if (!(await isConcurrent(original)))
         return;
-    const body = deps.state.replayBodies.get(requestKey(event.sessionID, request)) ??
-        (isJson(request)
-            ? await request
-                .clone()
-                .text()
-                .catch(() => undefined)
-            : undefined);
+    const body = await storedBody(deps, event);
     if (!body) {
         deps.log.warn("free-pi session busy but the request body was not available to replay", { sessionID: event.sessionID });
         return;
@@ -116,4 +129,58 @@ export async function replayConcurrentResponse(deps, event) {
         }
     }
     return undefined;
+}
+/**
+ * Retries an overflow rejection whose request plainly fits the model window.
+ *
+ * free-pi reports `context_ceiling`/`context_too_long` from the upstream
+ * model, and a failing gateway can report them for a small prompt. Compacting
+ * cannot fix that: the summary is accepted, the next turn is rejected the same
+ * way, and the runner compacts again. A fresh wire session is the cheapest
+ * recovery, so a small request is replayed on one before the overflow is
+ * handed to the runner.
+ */
+export async function replaySpuriousOverflow(deps, event) {
+    const original = event?.response;
+    const request = event?.request;
+    if (!(original instanceof Response) || !(request instanceof Request))
+        return {};
+    if (request.signal.aborted)
+        return {};
+    if (!(await overflowCodeOf(original)))
+        return {};
+    const body = await storedBody(deps, event);
+    if (!body)
+        return {};
+    const tokens = measureRequestTokens(body);
+    if (tokens >= SPURIOUS_OVERFLOW_TOKENS)
+        return { tokens, spurious: false };
+    let previous = request.headers.get("x-session-id") ?? wireSessionID(deps, event.sessionID);
+    for (let attempt = 1; attempt <= OVERFLOW_REPLAY_ATTEMPTS; attempt++) {
+        if (request.signal.aborted)
+            return { tokens, spurious: true };
+        const next = rotateWireSessionID(deps, event.sessionID);
+        if (previous && previous !== next) {
+            void closeFreePiSession(deps, previous).catch(() => undefined);
+        }
+        previous = next;
+        const headers = new Headers(request.headers);
+        headers.set("x-session-id", next);
+        headers.delete("content-length");
+        headers.delete("host");
+        const response = await fetch(request.url, {
+            method: request.method,
+            headers,
+            body,
+            signal: request.signal,
+        }).catch(() => undefined);
+        if (!response)
+            continue;
+        if (!(await overflowCodeOf(response))) {
+            deps.log.info("free-pi rejected a request that fits as too long; replayed it on a fresh session id", { sessionID: event.sessionID, tokens, to: next, attempt });
+            return { tokens, spurious: true, response };
+        }
+    }
+    deps.log.info("free-pi keeps rejecting a request that fits as too long; the provider is failing", { sessionID: event.sessionID, tokens });
+    return { tokens, spurious: true };
 }
