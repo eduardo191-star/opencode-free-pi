@@ -13,7 +13,7 @@ import { rememberReplayBody, replayConcurrentResponse, replaySpuriousOverflow, }
 import { localTitle } from "./title.js";
 import { rememberFreePiSession } from "./track.js";
 import { hydrateWireSessionID, markWireSessionDirty, rotateWireSessionID, takeWireSessionDirty, wireSessionID, } from "./wire.js";
-import { isFreePiSession, recordCompaction, recordToolEnd, recordToolStart, toolHeaders, } from "./tools.js";
+import { FREE_PI_TOOL_NAMES, isFreePiSession, recordCompaction, recordToolEnd, recordToolStart, toolHeaders, } from "./tools.js";
 import { rememberTrackedModel } from "./usage.js";
 const PENDING_LIMIT = 400;
 /** Each agent gets its own ad turn, so a subagent never reuses the parent's. */
@@ -88,7 +88,6 @@ async function applyModelRequest(deps, event) {
     if (!isFreePiProvider(providerID))
         return;
     rememberFreePiSession(deps, event.sessionID);
-    rememberTrackedModel(deps, event.sessionID, providerID, event.model?.id ?? "");
     const agent = event.agent ?? (event.kind === "title" ? "title" : undefined);
     event.headers ??= {};
     // Reconnect to the provider session saved for this OpenCode session. A
@@ -245,6 +244,24 @@ function applyRetryPolicy(deps, event) {
     const attempt = Math.max(1, event.attempt - 1);
     event.decision.delay = Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS);
 }
+/**
+ * Removes this plugin's tools from a request served by another provider. The
+ * tool editor is global, so without this every model would see `look_at_image`,
+ * `web_search` and the rest in its prompt even though their execution refuses
+ * non-free-pi sessions. The session's own (not another provider's) tool list is
+ * what the model receives, so this keeps free-pi's tools to free-pi models.
+ */
+function hideFreePiTools(event) {
+    if (isFreePiProvider(event.model?.providerID))
+        return;
+    const tools = event.tools;
+    if (!tools || typeof tools !== "object")
+        return;
+    for (const name of FREE_PI_TOOL_NAMES) {
+        if (Object.hasOwn(tools, name))
+            delete tools[name];
+    }
+}
 async function registerToolHooks(ctx, deps, registrations) {
     if (!ctx.tool?.hook)
         return;
@@ -262,16 +279,22 @@ async function registerToolHooks(ctx, deps, registrations) {
     }));
 }
 /**
- * free-pi only accepts text, like the provider CLI. OpenCode already swaps
- * media for this notice when it builds a request for a text-only model, but
- * doing it when the tool settles keeps the base64 image out of the session
- * (and out of compaction) instead of storing hundreds of KB per read.
+ * Models whose upstream accepts images get them natively, so a `read` that
+ * returns a picture must keep the file part. Text-only models would turn it
+ * into an error, so the image is swapped for a pointer to `look_at_image` when
+ * the tool settles: the base64 payload never enters the session (or a later
+ * compaction) instead of being stored only to be discarded at request time.
  */
 function replaceUnsupportedImages(deps, event) {
     if (event.status !== "completed")
         return;
     if (!isFreePiSession(deps, event.sessionID))
         return;
+    const tracked = deps.state.trackedModels.get(event.sessionID);
+    if (tracked &&
+        deps.state.imageModels.has(`${tracked.providerID}/${tracked.modelID}`)) {
+        return;
+    }
     const content = event.result?.content;
     if (!Array.isArray(content))
         return;
@@ -284,7 +307,7 @@ function replaceUnsupportedImages(deps, event) {
         const requested = typeof event.input?.path === "string" ? event.input.path : name;
         return {
             type: "text",
-            text: `ERROR: Cannot read "${name}" (free-pi models take text only). If you need its content, call look_at_image with path "${requested}" and a specific question.`,
+            text: `ERROR: Cannot read "${name}" (this free-pi model takes text only). If you need its content, call look_at_image with path "${requested}" and a specific question, or switch to a model that accepts image input.`,
         };
     });
     if (replaced.every((part, index) => part === content[index]))
@@ -305,6 +328,24 @@ export async function registerSessionHooks(ctx, deps) {
     await hookForProviders(ctx, "compaction", generation("compaction"), registrations);
     await hookForProviders(ctx, "generate", generation("generate"), registrations);
     await hookForProviders(ctx, "title", generation("title"), registrations);
+    // The generation hooks above only run for free-pi providers. These unscoped
+    // ones strip the plugin's tools from every other provider's requests.
+    for (const name of ["context", "compaction", "generate"]) {
+        registrations.push(await ctx.session.hook(name, ((event) => {
+            hideFreePiTools(event);
+        })));
+    }
+    // Track the model of every request, not only free-pi's: the tool gate and
+    // the usage handler must know when a session switches to another provider,
+    // otherwise a session that used free-pi once would keep its tools armed.
+    registrations.push(await ctx.session.hook("model.request", ((event) => {
+        const providerID = event.model?.providerID;
+        if (typeof providerID === "string" &&
+            typeof event.sessionID === "string" &&
+            event.sessionID) {
+            rememberTrackedModel(deps, event.sessionID, providerID, event.model?.id ?? "");
+        }
+    })));
     await hookForProviders(ctx, "model.request", (event) => applyModelRequest(deps, event), registrations);
     await hookForProviders(ctx, "http.request", (event) => rememberReplayBody(deps, event), registrations);
     await hookForProviders(ctx, "http.response", async (event) => {

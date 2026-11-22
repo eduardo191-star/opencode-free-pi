@@ -14,6 +14,8 @@ export type RuntimeState = {
     lastQuotaNotice?: string;
     catalogModels: Catalog;
     outputLimits: Map<string, number>;
+    /** `provider/model` ids whose upstream accepts image input. */
+    imageModels: Set<string>;
     quotaCache?: QuotaSnapshot;
     quotaPromise?: Promise<QuotaSnapshot>;
     lastQuotaRefreshAt: number;

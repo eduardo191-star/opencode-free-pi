@@ -1,9 +1,10 @@
 /**
  * `generate_image`, the free-pi text-to-image tool.
  *
- * The models cannot see images, so the tool writes the server's image into
- * `images/` inside the project and returns the relative path. Same endpoint,
- * limits and error wording as the provider CLI.
+ * The tool writes the server's image into `images/` inside the project and
+ * returns the relative path, so the result is a file even when the running
+ * model accepts images. Same endpoint, limits and error wording as the provider
+ * CLI.
  */
 import { randomBytes } from "node:crypto";
 import { mkdir, open } from "node:fs/promises";
@@ -123,7 +124,7 @@ async function executeGenerateImage(ctx, deps, raw, context) {
         mediaType: data.media_type,
         model: data.model,
     });
-    return done(`Saved image to ${relative} (${ext}, ${bytes.length} bytes). You cannot see the image; reference this path in your answer or code, and tell the user you could not check how it looks.`, {
+    return done(`Saved image to ${relative} (${ext}, ${bytes.length} bytes). To check how it looks, read that file when this model accepts image input, or call look_at_image with its path. If you cannot inspect it, say so instead of describing it.`, {
         ok: true,
         path: relative,
         ...(typeof data.cost_usd === "number" ? { cost_usd: data.cost_usd } : {}),
@@ -134,7 +135,7 @@ export async function registerGenerateImageTool(ctx, deps) {
     return ctx.tool.transform((editor) => {
         editor.add({
             name: "generate_image",
-            description: "Generate one image from a text prompt and save it as a file under images/ in the project. Returns the file path; you cannot see the image. Use it only when the user asks for an image, mockup, icon or illustration. Each call uses part of the user's daily allowance.",
+            description: "Generate one image from a text prompt and save it as a file under images/ in the project. Returns the file path; read it or call look_at_image to check the result. Use it only when the user asks for an image, mockup, icon or illustration. Each call uses part of the user's daily allowance.",
             input: IMAGE_INPUT,
             options: { codemode: false },
             execute: (input, context) => executeGenerateImage(ctx, deps, input, context),

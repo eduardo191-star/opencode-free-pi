@@ -118,9 +118,15 @@ async function setup(ctx) {
     const defenseModels = buildModels(defense, candidates, buildOptions);
     for (const [id, model] of Object.entries(mainModels)) {
         state.outputLimits.set(`${PROVIDER_ID}/${id}`, model.limit.output);
+        if (model.modalities.input.includes("image")) {
+            state.imageModels.add(`${PROVIDER_ID}/${id}`);
+        }
     }
     for (const [id, model] of Object.entries(defenseModels)) {
         state.outputLimits.set(`${DEFENSE_PROVIDER_ID}/${id}`, model.limit.output);
+        if (model.modalities.input.includes("image")) {
+            state.imageModels.add(`${DEFENSE_PROVIDER_ID}/${id}`);
+        }
     }
     const credential = await deps.activeCredential().catch(() => undefined);
     state.providerToken =

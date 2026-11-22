@@ -7,7 +7,7 @@ import { tokenFromCredential } from "../auth/credential.js";
 import type { Deps } from "../deps.js";
 import { handleFreePiError } from "../errors/handle.js";
 import { noteStepTokens } from "../catalog/live.js";
-import { forgetToolStats } from "./tools.js";
+import { forgetToolStats, isFreePiSession } from "./tools.js";
 import {
   beginExecution,
   cancelAllFinalizeTimers,
@@ -69,21 +69,25 @@ async function handleEvent(
       return;
     }
     case "session.execution.started": {
-      beginExecution(deps, event.data?.sessionID);
+      const sessionID = event.data?.sessionID;
+      if (typeof sessionID === "string" && isFreePiSession(deps, sessionID)) {
+        beginExecution(deps, sessionID);
+      }
       return;
     }
     case "session.execution.failed": {
       const sessionID = event.data?.sessionID;
-      // A request that dies mid-stream can leave its slot locked on the server.
-      // The next turn will use a fresh wire id instead of waiting on a retry.
-      if (isAbortLike(event.data?.error)) {
-        markWireSessionDirty(deps, sessionID);
+      if (typeof sessionID === "string" && isFreePiSession(deps, sessionID)) {
+        // A request that dies mid-stream can leave its slot locked on the
+        // server. The next turn will use a fresh wire id instead of waiting on
+        // a retry.
+        if (isAbortLike(event.data?.error)) {
+          markWireSessionDirty(deps, sessionID);
+        }
+        await handleFreePiError(deps, event.data?.error, {
+          allowRaw: true,
+        }).catch(() => undefined);
       }
-      await handleFreePiError(deps, event.data?.error, {
-        allowRaw:
-          typeof sessionID === "string" &&
-          deps.state.freePiSessions.has(sessionID),
-      }).catch(() => undefined);
       endExecution(deps, sessionID);
       return;
     }
@@ -92,30 +96,31 @@ async function handleEvent(
       return;
     }
     case "session.execution.interrupted": {
-      markWireSessionDirty(deps, event.data?.sessionID);
-      endExecution(deps, event.data?.sessionID);
+      const sessionID = event.data?.sessionID;
+      if (typeof sessionID === "string" && isFreePiSession(deps, sessionID)) {
+        markWireSessionDirty(deps, sessionID);
+      }
+      endExecution(deps, sessionID);
       return;
     }
     case "session.usage.updated": {
-      recordUsage(
-        deps,
-        event.data?.sessionID,
-        event.data?.cost,
-        event.data?.tokens,
-      );
+      const sessionID = event.data?.sessionID;
+      if (typeof sessionID !== "string" || !isFreePiSession(deps, sessionID)) {
+        return;
+      }
+      recordUsage(deps, sessionID, event.data?.cost, event.data?.tokens);
       return;
     }
     case "session.step.ended": {
-      recordUsage(
-        deps,
-        event.data?.sessionID,
-        event.data?.cost,
-        event.data?.tokens,
-      );
+      const sessionID = event.data?.sessionID;
+      if (typeof sessionID !== "string" || !isFreePiSession(deps, sessionID)) {
+        return;
+      }
+      recordUsage(deps, sessionID, event.data?.cost, event.data?.tokens);
       // Step tokens are per request; usage.updated is cumulative.
       noteStepTokens(
         deps,
-        deps.state.trackedModels.get(event.data?.sessionID)?.modelID ?? "",
+        deps.state.trackedModels.get(sessionID)?.modelID ?? "",
         event.data?.tokens,
       );
       return;

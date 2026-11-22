@@ -1,10 +1,11 @@
 /**
  * `look_at_image`, the free-pi vision tool.
  *
- * free-pi models are text-only, exactly like the provider CLI. To inspect an
- * image the model asks this tool a question; the plugin posts the pixels to
- * `/tools/vision` and returns the vision model's text answer. Each call counts
- * against the user's daily allowance.
+ * Image-capable free-pi models see attached images natively, but a file on disk
+ * still has to be attached (and its pixels stay in the context). This tool asks
+ * the server's vision model one question about the file and returns text only,
+ * which also covers text-only models. Each call counts against the user's daily
+ * allowance.
  */
 import { resolveToken } from "../auth/token.js";
 import { isFreePiSession } from "../session/tools.js";
@@ -246,7 +247,7 @@ export async function registerVisionTool(ctx, deps) {
     return ctx.tool.transform((editor) => {
         editor.add({
             name: TOOL_NAME,
-            description: "Ask a vision model one question about a PNG, JPEG or WebP image inside the project folder (for example a screenshot) and get a text answer. You cannot see images yourself. Each call uses part of the user's daily allowance.",
+            description: "Ask a vision model one question about a PNG, JPEG or WebP image inside the project folder (for example a screenshot) and get a text answer. Use it when the running model takes text only, or when you want a targeted answer without attaching the image. Each call uses part of the user's daily allowance.",
             input: INPUT,
             options: { codemode: false },
             execute: (input, context) => executeVision(ctx, deps, input, context),

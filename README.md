@@ -87,14 +87,16 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   El plugin lo responde con la primera línea del primer mensaje, sin gastar
   créditos, sin pedir un anuncio y sin dejar la sesión atascada en
   «New session».
-- **Capacidades según el modelo**: los modelos que models.dev identifica como
-  multimodales anuncian entrada de imágenes y el gateway las reenvía al modelo
-  upstream. Los modelos de solo texto siguen usando `look_at_image`, porque
-  incrustar cada imagen leída (cientos de KB) en la conversación desborda la
-  ventana y gasta cuota en tokens de imagen; OpenCode sustituye las imágenes por
-  un aviso y el plugin aplica el mismo aviso al terminar la herramienta para que
-  el base64 no quede guardado en la sesión. La salida es siempre texto: la ruta
-  de chat no devuelve imágenes.
+- **Capacidades según el modelo**: los modelos gratuitos aceptan imágenes de
+  entrada de forma nativa; se comprobó con `curl_cffi` contra el gateway y los
+  cuatro transcriben una captura adjunta. Los alias de pago anuncian lo que
+  models.dev sabe de su modelo upstream. La salida es siempre texto: la ruta de
+  chat no devuelve imágenes. Para una imagen en disco o para un modelo de solo
+  texto sigue estando `look_at_image`, que además no deja el base64 en la
+  conversación. OpenCode recodifica los adjuntos grandes a 2000 px y cuenta su
+  base64 como tokens, así que una imagen de más de ~500 KB puede disparar una
+  compactación automática antes del turno; en ese caso conviene `look_at_image`,
+  que reescala y envía solo lo necesario.
 - **Subagentes identificados**: las sesiones hijas envían
   `x-freepi-subagent: 1`, igual que los proveedores que el CLI crea para sus
   subagentes.
@@ -163,22 +165,33 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   hook de respuesta y entrega el resultado a OpenCode, así que el turno sigue sin
   mostrar «one request at a time»; el reintento normal también rota el id como
   respaldo.
-- **Catálogo y metadatos resistentes**: el catálogo de free-pi y el registro de
-  models.dev se guardan en disco; si la red falla al arrancar se usan las copias
-  locales en vez de quedarse sin modelos o sin límites de contexto. Los avisos
-  que el servidor manda en el catálogo y en `/me` (`notice`) se registran una
-  vez en el log del plugin.
+- **Catálogo y metadatos en vivo**: el catálogo de free-pi y el registro de
+  models.dev se consultan en cada arranque y solo se guardan en memoria para el
+  proceso actual. El único archivo persistente es `live-limits.json`, con la
+  ventana y los tokens que el servidor confirmó. Si la red falla, se usa lo que
+  ya esté en memoria en vez de inventar límites. Los avisos que el servidor
+  manda en el catálogo y en `/me` (`notice`) se registran una vez en el log del
+  plugin.
+- **Aislamiento por proveedor**: todo lo que añade el plugin —herramientas,
+  cabeceras, anuncios, reglas de prompt, compactación, reintentos, topes de
+  tokens y ajustes— se aplica solo a `free-pi` y `free-pi-defense`. Los demás
+  proveedores no reciben las herramientas en su lista (el plugin las quita de la
+  petición), no ven las cabeceras free-pi y conservan sus propias imágenes y su
+  propio uso. Si una sesión cambia de free-pi a otro modelo, pierde las
+  herramientas en la siguiente petición y las llamadas directas se rechazan.
 - Compatible con rutas, credenciales y navegador de cada sistema operativo.
 
 ## Lectura de imágenes
 
-Los modelos siguen siendo solo texto, igual que en el CLI. Para mirar una
-captura de pantalla o cualquier imagen del proyecto, el modelo llama a la
-herramienta `look_at_image` con una ruta y una pregunta concreta. El plugin:
+Los modelos gratuitos de free-pi aceptan imágenes adjuntas de forma nativa: al
+adjuntar una captura en la conversación, el gateway la reenvía al modelo upstream
+y el modelo la ve. En los modelos de solo texto, o cuando la imagen está en disco
+y no conviene cargarla entera, el modelo llama a `look_at_image` con una ruta y
+una pregunta concreta. El plugin:
 
+- Acepta PNG, JPEG y WebP.
 - Solo lee archivos dentro de la carpeta del proyecto (incluidos enlaces
   simbólicos resueltos).
-- Acepta PNG, JPEG y WebP.
 - Lee las dimensiones de la cabecera y envía el archivo intacto mientras no
   supere los 5 MB, conservando la resolución y la calidad originales. Solo las
   imágenes mayores se recodifican con Photon, manteniendo el mayor tamaño y la
@@ -192,15 +205,18 @@ herramienta `look_at_image` con una ruta y una pregunta concreta. El plugin:
 
 Cada llamada consume parte del allowance diario del usuario, como en el CLI.
 La herramienta solo se ejecuta en sesiones de free-pi; en otros proveedores
-responde que no está disponible. Si el modelo intenta leer una imagen con
-`read`, el plugin sustituye el base64 por un aviso que le indica usar
-`look_at_image` con la misma ruta.
+responde que no está disponible. Si el modelo activo acepta imágenes, un `read`
+de una imagen conserva el archivo y el modelo la ve; si es de solo texto, el
+plugin sustituye el base64 por un aviso que le indica usar `look_at_image` con la
+misma ruta.
 
 ## Herramientas free-pi
 
-El plugin registra las mismas herramientas de servidor que el CLI. Todas
-comprueban que la sesión sea de free-pi antes de gastar cuota; en cualquier otro
-proveedor responden que no están disponibles.
+El plugin registra las mismas herramientas de servidor que el CLI. OpenCode no
+permite registrar una herramienta solo para un proveedor, así que el plugin las
+quita de la lista de herramientas de cada petición servida por otro proveedor y,
+además, todas comprueban que la sesión sea de free-pi antes de gastar cuota. Los
+demás modelos no las ven ni pueden ejecutarlas.
 
 | Herramienta      | Qué hace                                                                 |
 | ---------------- | ------------------------------------------------------------------------ |

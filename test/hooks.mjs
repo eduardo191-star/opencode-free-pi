@@ -10,6 +10,7 @@ process.env.FREEPI_BASE_URL = "https://api.test";
 delete process.env.FREEPI_JWT;
 
 const { registerSessionHooks } = await import("../dist/session/hooks.js");
+const { isFreePiSession } = await import("../dist/session/tools.js");
 const { createRuntimeState } = await import("../dist/state.js");
 const { recordUsage } = await import("../dist/session/usage.js");
 const {
@@ -86,10 +87,21 @@ const invoke = async (name, providerID, event) => {
   return event;
 };
 
+const invokeGlobal = async (name, event) => {
+  const entry = (hooks.get(name) ?? []).find(
+    (item) => item.providerID === undefined,
+  );
+  assert.ok(entry, `hook ${name} registered for every provider`);
+  await entry.callback(event);
+  return event;
+};
+
 try {
   const registrations = await registerSessionHooks(ctx, deps);
-  // 8 session hooks for each provider, plus the two global tool hooks.
-  assert.equal(registrations.length, 18);
+  // 8 session hooks for each provider, 3 unscoped context hooks that hide the
+  // plugin's tools from other providers, 1 unscoped model tracker, and the two
+  // global tool hooks.
+  assert.equal(registrations.length, 22);
   for (const name of [
     "context",
     "compaction",
@@ -101,11 +113,22 @@ try {
     "retry",
   ]) {
     const list = hooks.get(name) ?? [];
+    const providers = list
+      .map((item) => item.providerID)
+      .filter((value) => value !== undefined)
+      .sort();
     assert.deepEqual(
-      list.map((item) => item.providerID).sort(),
+      providers,
       ["free-pi", "free-pi-defense"],
       `${name} is registered for both providers`,
     );
+    if (["context", "compaction", "generate"].includes(name)) {
+      assert.equal(
+        list.filter((item) => item.providerID === undefined).length,
+        1,
+        `${name} also has an unscoped tool-scoping hook`,
+      );
+    }
   }
 
   deps.state.outputLimits.set("free-pi/hy4-flash", 1_000_000);
@@ -457,9 +480,39 @@ try {
     { type: "text", text: "Image read successfully" },
     {
       type: "text",
-      text: 'ERROR: Cannot read "photo.jpg" (free-pi models take text only). If you need its content, call look_at_image with path "captures/photo.jpg" and a specific question.',
+      text: 'ERROR: Cannot read "photo.jpg" (this free-pi model takes text only). If you need its content, call look_at_image with path "captures/photo.jpg" and a specific question, or switch to a model that accepts image input.',
     },
   ]);
+
+  // A model whose upstream accepts images keeps the read image: the gateway
+  // forwards image parts and the model sees the picture natively.
+  deps.state.freePiSessions.add("ses_vision");
+  deps.state.trackedModels.set("ses_vision", {
+    providerID: "free-pi",
+    modelID: "vision-model",
+  });
+  deps.state.imageModels.add("free-pi/vision-model");
+  const visionEvent = {
+    sessionID: "ses_vision",
+    agent: "build",
+    messageID: "msg_tool",
+    id: "call_3b",
+    tool: "read",
+    input: { path: "captures/photo.jpg" },
+    status: "completed",
+    result: {
+      content: [
+        {
+          type: "file",
+          uri: "data:image/jpeg;base64,AAAA",
+          mime: "image/jpeg",
+          name: "photo.jpg",
+        },
+      ],
+    },
+  };
+  await toolAfter.callback(visionEvent);
+  assert.equal(visionEvent.result.content[0].type, "file");
 
   // Sessions served by any other provider keep their media untouched.
   const otherProviderEvent = {
@@ -483,6 +536,75 @@ try {
   };
   await toolAfter.callback(otherProviderEvent);
   assert.equal(otherProviderEvent.result.content[0].type, "file");
+
+  // The plugin's tools are registered globally, but a request served by
+  // another provider must not receive them. A session that switched away from
+  // free-pi loses them on the next request, like it loses the headers.
+  const freeTools = {
+    look_at_image: { description: "", input: {} },
+    free_pi_usage: { description: "", input: {} },
+    web_search: { description: "", input: {} },
+    docs_lookup: { description: "", input: {} },
+    generate_image: { description: "", input: {} },
+    read: { description: "", input: {} },
+  };
+  const otherModel = await invokeGlobal("context", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "anthropic", id: "claude-sonnet" },
+    system: [],
+    messages: [userMessage],
+    options: {},
+    tools: structuredClone(freeTools),
+  });
+  assert.deepEqual(Object.keys(otherModel.tools), ["read"]);
+
+  // A free-pi request keeps every tool.
+  const freeModel = await invokeGlobal("context", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    system: [],
+    messages: [userMessage],
+    options: {},
+    tools: structuredClone(freeTools),
+  });
+  assert.deepEqual(
+    Object.keys(freeModel.tools).sort(),
+    Object.keys(freeTools).sort(),
+  );
+
+  // `isFreePiSession` follows the current model, so a session that used
+  // free-pi before and now runs another provider cannot call its tools.
+  deps.state.freePiSessions.add("ses_switched");
+  deps.state.trackedModels.set("ses_switched", {
+    providerID: "anthropic",
+    modelID: "claude-sonnet",
+  });
+  assert.equal(isFreePiSession(deps, "ses_switched"), false);
+  deps.state.trackedModels.set("ses_switched", {
+    providerID: "free-pi",
+    modelID: "hy4-flash",
+  });
+  assert.equal(isFreePiSession(deps, "ses_switched"), true);
+
+  // The unscoped model tracker records other providers too, so the gate flips
+  // on the first request after a model switch.
+  deps.state.freePiSessions.add("ses_tracked");
+  await invokeGlobal("model.request", {
+    sessionID: "ses_tracked",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "nvidia", id: "gemma" },
+    headers: {},
+  });
+  assert.equal(isFreePiSession(deps, "ses_tracked"), false);
+  assert.deepEqual(deps.state.trackedModels.get("ses_tracked"), {
+    providerID: "nvidia",
+    modelID: "gemma",
+  });
 
   // A compaction marks the next request with the number of folded messages and
   // asks the summarizer to keep the facts a later turn needs.

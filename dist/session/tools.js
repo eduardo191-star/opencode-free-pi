@@ -11,12 +11,31 @@ import { trimMap } from "../utils/async.js";
 const ID_PATTERN = /^[\w.:-]{1,100}$/;
 const MAX_ENTRY_LENGTH = 150;
 const MAX_STARTED = 200;
+/**
+ * Every tool this plugin adds. They are registered globally because OpenCode's
+ * tool editor has no provider filter, so the plugin hides them from requests
+ * served by another provider (see `hideFreePiTools`) and refuses to run them
+ * outside a free-pi session.
+ */
+export const FREE_PI_TOOL_NAMES = [
+    "look_at_image",
+    "free_pi_usage",
+    "web_search",
+    "docs_lookup",
+    "generate_image",
+];
+/**
+ * Whether this session is currently served by free-pi. The last request's
+ * model wins over the historical set, so a session that switches to another
+ * provider stops seeing free-pi's tools and headers immediately.
+ */
 export function isFreePiSession(deps, sessionID) {
-    if (deps.state.freePiSessions.has(sessionID))
-        return true;
     const tracked = deps.state.trackedModels.get(sessionID);
-    return (tracked?.providerID === PROVIDER_ID ||
-        tracked?.providerID === DEFENSE_PROVIDER_ID);
+    if (tracked) {
+        return (tracked.providerID === PROVIDER_ID ||
+            tracked.providerID === DEFENSE_PROVIDER_ID);
+    }
+    return deps.state.freePiSessions.has(sessionID);
 }
 function statsFor(deps, sessionID) {
     let stats = deps.state.toolStats.get(sessionID);

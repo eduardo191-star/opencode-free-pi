@@ -70,6 +70,31 @@ assert.deepEqual(free.reasoning_options, [
 assert.deepEqual(free.settings, { reasoningEffort: "high" });
 assert.equal(free.enabled, true);
 
+// free-pi's free models were probed against the live gateway: every one of them
+// transcribes an attached screenshot, even when models.dev has no entry for the
+// alias, so image input is always advertised for them.
+const freeNoRegistry = buildModels(
+  [{ id: "particle", display_name: "Particle", free: true }],
+  [],
+)["particle"];
+assert.deepEqual(freeNoRegistry.modalities, {
+  input: ["text", "image"],
+  output: ["text"],
+});
+assert.equal(freeNoRegistry.attachment, true);
+
+// Paid aliases without a models.dev match stay text-only until the gateway is
+// probed for them, so the picker never promises an unsupported attachment.
+const paidNoRegistry = buildModels(
+  [{ id: "paid-alias", display_name: "Paid Alias" }],
+  [],
+)["paid-alias"];
+assert.deepEqual(paidNoRegistry.modalities, {
+  input: ["text"],
+  output: ["text"],
+});
+assert.equal(paidNoRegistry.attachment, false);
+
 // A multimodal upstream is advertised with image input even when models.dev
 // omits the `attachment` flag, and image output is never advertised.
 const multimodal = buildModels(

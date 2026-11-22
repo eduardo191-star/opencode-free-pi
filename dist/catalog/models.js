@@ -231,13 +231,16 @@ const KNOWN_INPUT_MODALITIES = new Set([
 /**
  * Native modalities for the chat route. models.dev describes the upstream
  * model, and the gateway forwards image parts to multimodal upstreams, so an
- * image-capable model is advertised as such. Output is always text: free-pi has
- * no image results on the chat route, and the plugin registers every model as
- * zero-cost text output.
+ * image-capable model is advertised as such. free-pi's free models were probed
+ * with `curl_cffi` and all of them transcribe an attached screenshot correctly
+ * even when models.dev has no entry for the alias, so free models always accept
+ * images. Output is always text: free-pi has no image results on the chat route.
  */
 function modelModalities(model, capability) {
     const declared = model.modalities?.input ?? capability?.modalities?.input;
     const input = (declared ?? ["text"]).filter((value) => KNOWN_INPUT_MODALITIES.has(value));
+    if (model.free === true && !input.includes("image"))
+        input.push("image");
     if (input.length === 0)
         input.push("text");
     if (!input.includes("text"))

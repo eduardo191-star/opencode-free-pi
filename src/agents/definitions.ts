@@ -49,7 +49,8 @@ it.
 - \`free_pi_usage\` shows today's remaining allowance, credits, token counts and
   the account tier. Read-only.
 - \`look_at_image\` asks a vision model about a PNG, JPEG or WebP inside the
-  project. free-pi models are text-only, so use it instead of reading images.
+  project. Use it when the current model takes text only, or when the image is a
+  file on disk and you want a targeted answer instead of attaching it.
 - \`generate_image\` draws one image from a prompt and saves it under \`images/\`.
 - \`web_search\` searches the web for current information.
 - \`docs_lookup\` looks up current library and framework documentation.

@@ -7,6 +7,13 @@
  * - `x-freepi-compacted: v1:<dropped messages>` on the request after compaction
  */
 import type { Deps } from "../deps.js";
+/**
+ * Every tool this plugin adds. They are registered globally because OpenCode's
+ * tool editor has no provider filter, so the plugin hides them from requests
+ * served by another provider (see `hideFreePiTools`) and refuses to run them
+ * outside a free-pi session.
+ */
+export declare const FREE_PI_TOOL_NAMES: readonly ["look_at_image", "free_pi_usage", "web_search", "docs_lookup", "generate_image"];
 type ToolResultLike = {
     metadata?: Record<string, unknown>;
 };
@@ -16,6 +23,11 @@ type ToolEnd = {
     status: "completed" | "error";
     result?: ToolResultLike;
 };
+/**
+ * Whether this session is currently served by free-pi. The last request's
+ * model wins over the historical set, so a session that switches to another
+ * provider stops seeing free-pi's tools and headers immediately.
+ */
 export declare function isFreePiSession(deps: Deps, sessionID: string): boolean;
 export declare function recordToolStart(deps: Deps, sessionID: string, id: string): void;
 export declare function recordToolEnd(deps: Deps, sessionID: string, end: ToolEnd): void;
