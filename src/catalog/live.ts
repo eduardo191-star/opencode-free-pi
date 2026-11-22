@@ -25,6 +25,14 @@ const FILE = "live-limits.json";
 const WRITE_DEBOUNCE_MS = 2_000;
 /** Verification stops shrinking here instead of advertising a useless window. */
 const MIN_WINDOW = 32_768;
+/** Hard stop for the upward search; `buildModels` never advertises more. */
+const MAX_WINDOW = 1_000_000;
+/** Keep headroom under the exact ceiling so a fresh turn never hits a 413. */
+const WINDOW_SAFETY = 0.97;
+/** Probe requests per verification, counting the initial confirmation. */
+const MAX_PROBES = 6;
+/** OpenCode budgets four characters per token; correct it after the first probe. */
+const INITIAL_CHARS_PER_TOKEN = 4;
 
 export type ModelObservation = {
   /** Largest prompt the gateway accepted for this model. */
@@ -228,15 +236,48 @@ async function sendProbe(
 export type VerifyLimitsOptions = {
   /** A free model to probe with; paid models would spend credits. */
   model?: string;
-  /** Window to check. Defaults to the compiled one. */
+  /** Window to check. Defaults to the measured one, then the compiled one. */
   window?: number;
 };
 
+/** One gateway answer used to settle the advertised window. */
+export type ProbeSample = {
+  chars: number;
+  /** Prompt tokens the gateway reported for an accepted probe. */
+  tokens?: number;
+  tooLong: boolean;
+};
+
 /**
- * Checks the compiled window against the gateway by sending the largest prompt
- * that window allows. On rejection it steps down until the gateway accepts, so
- * the next catalog build advertises what the server really takes. Returns the
- * verified window, or `undefined` when nothing could be learned.
+ * Largest window the accepted probes prove, with headroom. Pure so the probe
+ * loop and the persisted value can be tested without a server.
+ */
+export function settleWindow(
+  samples: readonly ProbeSample[],
+): number | undefined {
+  let best = 0;
+  for (const sample of samples) {
+    if (sample.tooLong) continue;
+    if (!Number.isFinite(sample.tokens) || (sample.tokens ?? 0) <= 0) continue;
+    if (sample.tokens! <= best) continue;
+    best = sample.tokens!;
+  }
+  if (best === 0) return undefined;
+  return Math.min(
+    MAX_WINDOW,
+    Math.max(MIN_WINDOW, Math.floor((best * WINDOW_SAFETY) / 1_000) * 1_000),
+  );
+}
+
+/**
+ * Checks the compiled window against the gateway and then grows past it while
+ * the gateway keeps accepting larger prompts. The start value is a floor, not a
+ * ceiling: the server has no endpoint for its real limit, and pinning sessions
+ * to the CLI's 200k wastes capacity the account can actually use. On rejection
+ * it binary-searches between the largest accepted prompt and the rejected one,
+ * so the next catalog build advertises the measured window. Returns the verified
+ * window, or `undefined` when nothing could be learned (the previous value is
+ * kept).
  */
 export async function verifyGatewayWindow(
   deps: Deps,
@@ -244,34 +285,77 @@ export async function verifyGatewayWindow(
 ): Promise<number | undefined> {
   const modelID = options.model;
   if (!modelID) return undefined;
-  const window = options.window ?? CONTEXT_WINDOW;
-  // OpenCode budgets a token as ~4 characters. The gateway rejects by its own
-  // prompt size, so aim just under what the window allows in characters; the
-  // reported prompt_tokens are logged for comparison but do not decide the
-  // result.
-  const targetChars = Math.max(MIN_WINDOW * 4, Math.floor(window * 4 * 0.99));
-  for (const factor of [1, 0.85, 0.7, 0.55]) {
-    const chars = Math.floor(targetChars * factor);
-    if (chars < MIN_WINDOW) break;
+  const fallback =
+    options.window ?? cached?.window?.tokens ?? CONTEXT_WINDOW;
+  const samples: ProbeSample[] = [];
+  // Accepted prompt tokens; also the lower bound of the binary search.
+  let accepted = 0;
+  let charsPerToken = INITIAL_CHARS_PER_TOKEN;
+  let target = Math.max(MIN_WINDOW, Math.min(fallback, MAX_WINDOW));
+
+  for (let attempt = 0; attempt < MAX_PROBES; attempt += 1) {
+    const chars = Math.max(
+      MIN_WINDOW * charsPerToken,
+      Math.floor(target * charsPerToken * 0.99),
+    );
     const result = await sendProbe(deps, modelID, chars);
-    if (result.status === "failed") return undefined;
-    if (result.status === "too_long") continue;
-    // Passing the full target confirms the compiled window. After a rejection,
-    // only the reduced target is proven, so advertise that instead.
-    const verified =
-      factor === 1 ? window : Math.max(MIN_WINDOW, Math.floor(window * factor));
-    const limits = (cached ??= emptyLimits());
-    limits.window = { tokens: verified, verifiedAt: Date.now(), model: modelID };
-    loaded = true;
-    await persist();
-    deps.log.info("free-pi verified the gateway context window", {
-      model: modelID,
-      window: verified,
-      compiled: window,
-      probedChars: chars,
-      probedTokens: result.promptTokens,
+    if (result.status === "failed") {
+      // A network failure or a rejected body proves nothing; keep what the
+      // earlier probes already established.
+      if (samples.length === 0) return undefined;
+      break;
+    }
+    if (result.status === "too_long") {
+      samples.push({ chars, tooLong: true });
+      if (accepted === 0) {
+        // The compiled window itself is too large: step down as before.
+        target = Math.floor(target * 0.85);
+        if (target < MIN_WINDOW) return undefined;
+        continue;
+      }
+      const next = Math.floor((accepted + target) / 2);
+      if (next <= accepted) break;
+      target = next;
+      continue;
+    }
+
+    const tokens = result.promptTokens;
+    samples.push({
+      chars,
+      tooLong: false,
+      ...(tokens && tokens > 0 ? { tokens } : {}),
     });
-    return verified;
+    if (tokens && tokens > 0) {
+      accepted = tokens;
+      // Learn the real characters-per-token ratio for this prompt shape; the
+      // filler is prose, and four chars/token overshoots badly.
+      charsPerToken = chars / tokens;
+    } else {
+      accepted = Math.floor(chars / charsPerToken);
+    }
+    if (accepted >= MAX_WINDOW) break;
+    const next = Math.min(MAX_WINDOW, Math.floor(accepted * 1.2));
+    if (next <= accepted) break;
+    target = next;
   }
-  return undefined;
+
+  const settled = settleWindow(samples);
+  if (!settled) return undefined;
+  // Keep the previous floor when growth probes only prove less: the CLI's 200k
+  // is already known to work, so a small upstream probe model must not shrink
+  // every session's window.
+  const verified = Math.max(settled, Math.min(fallback, CONTEXT_WINDOW));
+  const limits = (cached ??= emptyLimits());
+  limits.window = { tokens: verified, verifiedAt: Date.now(), model: modelID };
+  loaded = true;
+  await persist();
+  deps.log.info("free-pi verified the gateway context window", {
+    model: modelID,
+    window: verified,
+    compiled: fallback,
+    probes: samples.length,
+    acceptedTokens: accepted,
+    charsPerToken: Number(charsPerToken.toFixed(2)),
+  });
+  return verified;
 }

@@ -134,10 +134,22 @@ async function setup(ctx) {
     });
     // The gateway does not publish its context ceiling. Verify the compiled
     // window against it once a week with a free model, in the background, and
-    // persist the result for the next catalog build.
+    // persist the result for the next catalog build. Prefer the free model with
+    // the largest prompt already accepted in real traffic: it has the most
+    // evidence behind it, so the growth probes describe the window sessions use.
     if (ctx.options?.liveLimits !== false && shouldVerifyWindow(live)) {
-        const probe = main.find((model) => model.free === true)?.id ??
-            catalog?.default_model ??
+        const free = main.filter((model) => model.free === true && typeof model.id === "string");
+        const probe = free
+            .map((model) => ({
+            id: model.id,
+            seen: live?.models[model.id ?? ""]?.maxPromptTokens ?? 0,
+        }))
+            .sort((a, b) => b.seen - a.seen)[0]?.id ??
+            (catalog?.default_model &&
+                free.some((model) => model.id === catalog.default_model)
+                ? catalog.default_model
+                : undefined) ??
+            free[0]?.id ??
             Object.keys(mainModels)[0];
         if (probe) {
             void verifyGatewayWindow(deps, { model: probe }).catch(() => undefined);

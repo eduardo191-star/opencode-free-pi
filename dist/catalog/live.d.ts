@@ -43,13 +43,29 @@ export declare function shouldVerifyWindow(limits: LiveLimits | undefined): bool
 export type VerifyLimitsOptions = {
     /** A free model to probe with; paid models would spend credits. */
     model?: string;
-    /** Window to check. Defaults to the compiled one. */
+    /** Window to check. Defaults to the measured one, then the compiled one. */
     window?: number;
 };
+/** One gateway answer used to settle the advertised window. */
+export type ProbeSample = {
+    chars: number;
+    /** Prompt tokens the gateway reported for an accepted probe. */
+    tokens?: number;
+    tooLong: boolean;
+};
 /**
- * Checks the compiled window against the gateway by sending the largest prompt
- * that window allows. On rejection it steps down until the gateway accepts, so
- * the next catalog build advertises what the server really takes. Returns the
- * verified window, or `undefined` when nothing could be learned.
+ * Largest window the accepted probes prove, with headroom. Pure so the probe
+ * loop and the persisted value can be tested without a server.
+ */
+export declare function settleWindow(samples: readonly ProbeSample[]): number | undefined;
+/**
+ * Checks the compiled window against the gateway and then grows past it while
+ * the gateway keeps accepting larger prompts. The start value is a floor, not a
+ * ceiling: the server has no endpoint for its real limit, and pinning sessions
+ * to the CLI's 200k wastes capacity the account can actually use. On rejection
+ * it binary-searches between the largest accepted prompt and the rejected one,
+ * so the next catalog build advertises the measured window. Returns the verified
+ * window, or `undefined` when nothing could be learned (the previous value is
+ * kept).
  */
 export declare function verifyGatewayWindow(deps: Deps, options?: VerifyLimitsOptions): Promise<number | undefined>;

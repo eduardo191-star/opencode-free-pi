@@ -14,6 +14,7 @@ const { createRuntimeState } = await import("../dist/state.js");
 const { recordUsage } = await import("../dist/session/usage.js");
 const {
   MAX_OUTPUT_TOKENS,
+  MAX_OUTPUT_TOKENS_CEILING,
   FREE_PI_GUIDANCE_MARKER,
   FREE_PI_COMPACTION_MARKER,
 } = await import("../dist/constants.js");
@@ -107,7 +108,7 @@ try {
     );
   }
 
-  deps.state.outputLimits.set("free-pi/hy4-flash", 65536);
+  deps.state.outputLimits.set("free-pi/hy4-flash", 1_000_000);
   deps.state.latestClientVersion = "9.9.9";
 
   const userMessage = {
@@ -127,7 +128,7 @@ try {
     messages: [userMessage],
     options: { maxTokens: 1_000_000 },
   });
-  assert.equal(contextEvent.options.maxTokens, MAX_OUTPUT_TOKENS);
+  assert.equal(contextEvent.options.maxTokens, MAX_OUTPUT_TOKENS_CEILING);
   assert.ok(
     contextEvent.system.some(
       (part) =>

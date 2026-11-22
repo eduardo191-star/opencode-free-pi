@@ -66,11 +66,14 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - Catálogo en vivo de modelos **free-pi** y **free-pi-defense**.
 - Integración nativa de OpenCode V2 para credenciales OAuth, clave y entorno.
 - Cuota diaria, créditos premium y límites con mensajes claros.
-- **Límites reales de free-pi**: todos los modelos anuncian la ventana de
+- **Límites reales de free-pi**: todos los modelos parten de la ventana de
   contexto de 200k y el límite de salida de 32k que aplica el CLI del
   proveedor, aunque models.dev informe ventanas mayores para el modelo
-  upstream. Así OpenCode compacta antes de que el servidor rechace la
-  conversación.
+  upstream. El plugin sube la ventana midiendo lo que el gateway acepta de
+  verdad (hasta 1M) y deja que los modelos con más presupuesto de salida usen
+  hasta 131k, para que el razonamiento no se corte. Así OpenCode compacta antes
+  de que el servidor rechace la conversación y aun así aprovecha la capacidad
+  real de la cuenta.
 - **Compactación integrada**: los errores `context_too_long` de free-pi se
   reescriben para que OpenCode los reconozca como desbordamiento de contexto y
   ejecute `/compact` automáticamente en vez de terminar el turno.
@@ -84,38 +87,50 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   El plugin lo responde con la primera línea del primer mensaje, sin gastar
   créditos, sin pedir un anuncio y sin dejar la sesión atascada en
   «New session».
-- **Solo texto, como el CLI**: los modelos no anuncian entrada de imágenes.
-  El CLI las trata fuera de la conversación (su herramienta `look_at_image`),
-  y enviarlas como partes `image_url` incrusta cada imagen leída (cientos de
-  KB) en la petición, desborda la ventana de 200k y gasta la cuota diaria en
-  tokens de imagen. OpenCode sustituye las imágenes por un aviso, y el plugin
-  aplica el mismo aviso al terminar la herramienta para que el base64 no quede
-  guardado en la sesión; después el modelo puede usar `look_at_image` para
-  consultar la imagen sin meterla en el contexto.
+- **Capacidades según el modelo**: los modelos que models.dev identifica como
+  multimodales anuncian entrada de imágenes y el gateway las reenvía al modelo
+  upstream. Los modelos de solo texto siguen usando `look_at_image`, porque
+  incrustar cada imagen leída (cientos de KB) en la conversación desborda la
+  ventana y gasta cuota en tokens de imagen; OpenCode sustituye las imágenes por
+  un aviso y el plugin aplica el mismo aviso al terminar la herramienta para que
+  el base64 no quede guardado en la sesión. La salida es siempre texto: la ruta
+  de chat no devuelve imágenes.
 - **Subagentes identificados**: las sesiones hijas envían
   `x-freepi-subagent: 1`, igual que los proveedores que el CLI crea para sus
   subagentes.
-- **Pensamiento por defecto**: el plugin pide `reasoning_effort: "medium"`
+- **Pensamiento por defecto**: el plugin pide `reasoning_effort: "high"`
   cuando el modelo no trae variante elegida. Dejarlo sin definir hacía que los
   modelos gratuitos respondieran con prisa, gastando apenas unas decenas de
   tokens de razonamiento incluso en tareas que requieren planificar. El
-  selector ofrece siempre `none`, `minimal`, `low`, `medium` y `high`, igual
-  que los niveles del CLI, y añade `max` cuando el catálogo lo declara; los
-  modelos de presupuesto usan `high`. La opción `reasoningEffort: false` del
-  plugin recupera el nivel del servidor. No se anuncian `thinking_budget` ni
+  selector ofrece siempre los seis niveles que el gateway acepta —`none`,
+  `minimal`, `low`, `medium`, `high` y `max`—, para todos los modelos, y el
+  mismo conjunto se anuncia en `reasoning_options`; los modelos de presupuesto
+  usan `high` por defecto. La opción `reasoningEffort: false` del plugin
+  recupera el nivel del servidor. No se anuncian `thinking_budget` ni
   `thinking`, porque la ruta `openai-compatible` de OpenCode los descarta.
+- **Más razonamiento real**: medido con `curl_cffi` contra el gateway, cambiar
+  `reasoning_effort` no altera cuánto piensa el modelo (los tokens de
+  razonamiento varían al azar entre ~60 y ~600 en cada nivel) y los modelos
+  `flash` se detienen solos en la primera respuesta plausible. Lo que sí
+  funciona es pedir el trabajo explícito: con la regla de «escribe cada paso,
+  recalcula por un segundo método y no respondas hasta que coincidan», el mismo
+  modelo subió de ~450 a ~1250 tokens de razonamiento y acertó 5/5 problemas de
+  lógica frente a 3/5 sin la regla. Por eso la guía de trabajo prioriza la
+  respuesta lenta y verificada, y el límite de salida se deja amplio para que
+  esa cadena no se trunque.
 - **Capacidades iguales al CLI**: todos los modelos se registran con
-  razonamiento activo, entrada solo de texto, coste cero y 32k de salida. La
-  ventana arranca en los 200k del CLI, pero el plugin la comprueba contra el
-  gateway cada 7 días con un modelo gratuito y usa la medida real. No se fuerza
-  temperatura ni `top_p`: la petición real no los incluye, así que el gateway
-  aplica su propio valor. El prompt se envía con rol `system`, no `developer`.
+  razonamiento activo, coste cero, la ventana medida y el límite de salida que
+  publica el upstream (32k por defecto, hasta 131k). No se fuerza temperatura ni
+  `top_p`: la petición real no los incluye, así que el gateway aplica su propio
+  valor. El prompt se envía con rol `system`, no `developer`.
 - **Límites medidos, no inventados**: `/client-version` solo devuelve id,
   nombre, `free`, `section`, `note`, `stats_id` y `usage_x`; no hay endpoint de
-  capacidades ni de ventana. El plugin no se queda en constantes: mide la
-  ventana real del gateway, guarda el resultado en `live-limits.json` y anota en
-  cada paso los tokens de prompt y de razonamiento que el servidor confirma.
-  `liveLimits: false` desactiva la comprobación y deja la ventana compilada.
+  capacidades ni de ventana. El plugin no se queda en constantes: confirma la
+  ventana compilada y después la agranda mientras el gateway acepte prompts
+  mayores, con búsqueda binaria al primer rechazo y un 3 % de margen. Guarda el
+  resultado en `live-limits.json` y anota en cada paso los tokens de prompt y de
+  razonamiento que el servidor confirma. `liveLimits: false` desactiva la
+  comprobación y deja la ventana compilada.
 - **Reglas de trabajo en el prompt**: cada petición principal de free-pi añade
   un bloque corto al system prompt con lo que los modelos gratuitos suelen
   omitir: leer antes de editar, ejecutar las comprobaciones de verdad, no

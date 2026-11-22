@@ -84,4 +84,35 @@ assert.equal(
   true,
 );
 
+// The upward probe settles on the largest prompt the gateway accepted, with 3%
+// headroom and a 1k rounding. Rejections never raise the value.
+assert.equal(live.settleWindow([]), undefined);
+assert.equal(live.settleWindow([{ chars: 900_000, tooLong: true }]), undefined);
+assert.equal(
+  live.settleWindow([
+    { chars: 792_000, tokens: 147_000, tooLong: false },
+    { chars: 1_020_000, tokens: 211_000, tooLong: false },
+    { chars: 1_120_000, tooLong: true },
+  ]),
+  204_000,
+);
+assert.equal(
+  live.settleWindow([{ chars: 1, tokens: 1_500_000, tooLong: false }]),
+  1_000_000,
+);
+assert.equal(
+  live.settleWindow([{ chars: 1, tokens: 10_000, tooLong: false }]),
+  32_768,
+);
+
+// A window measured above the CLI's 200k is what the next start advertises.
+const grown = buildModels([{ id: "m", free: true }], [], {
+  live: {
+    version: 1,
+    models: {},
+    window: { tokens: 204_000, verifiedAt: Date.now(), model: "probe" },
+  },
+})["m"];
+assert.equal(grown.limit.context, 204_000);
+
 console.log("live limits ok");

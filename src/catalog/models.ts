@@ -4,7 +4,9 @@ import {
   CONTEXT_WINDOW,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_THINKING_LEVELS,
+  MAX_CONTEXT_WINDOW,
   MAX_OUTPUT_TOKENS,
+  MAX_OUTPUT_TOKENS_CEILING,
   REASONING_EFFORTS,
 } from "../constants.js";
 import type {
@@ -178,7 +180,8 @@ export function modelVariants(
   // The provider CLI registers every model with `reasoning: true` and an unset
   // `thinkingLevelMap`, so it offers these levels to every model. models.dev
   // lists fewer levels for some upstream models, but the gateway accepts the
-  // CLI's set, and hiding levels only makes the picker disagree with the CLI.
+  // CLI's set (including `max`), and hiding levels only makes the picker
+  // disagree with the CLI.
   const variants: VariantMap = {};
   for (const level of DEFAULT_THINKING_LEVELS) {
     variants[level] = { reasoningEffort: level };
@@ -197,6 +200,26 @@ export function modelVariants(
     budgetVariants(variants);
   }
   return variants;
+}
+
+/**
+ * The levels the model actually exposes, so OpenCode's picker and the
+ * `reasoning_effort` values the plugin sends come from the same list. The
+ * gateway accepts every level for every model, so the CLI set always applies.
+ */
+export function effectiveReasoningOptions(
+  options: ReasoningOption[] | undefined,
+  variants: VariantMap,
+): ReasoningOption[] {
+  const values = Object.keys(variants);
+  const declared = options?.find(
+    (option): option is Extract<ReasoningOption, { type: "effort" }> =>
+      option.type === "effort",
+  )?.values;
+  for (const value of declared ?? []) {
+    if (!values.includes(value)) values.push(value);
+  }
+  return values.length > 0 ? [{ type: "effort", values }] : [];
 }
 
 export function isReasoningEffort(value: unknown): value is string {
@@ -295,6 +318,34 @@ export function filterAccessibleModels(
   });
 }
 
+const KNOWN_INPUT_MODALITIES = new Set([
+  "text",
+  "image",
+  "audio",
+  "video",
+  "pdf",
+]);
+
+/**
+ * Native modalities for the chat route. models.dev describes the upstream
+ * model, and the gateway forwards image parts to multimodal upstreams, so an
+ * image-capable model is advertised as such. Output is always text: free-pi has
+ * no image results on the chat route, and the plugin registers every model as
+ * zero-cost text output.
+ */
+function modelModalities(
+  model: CatalogModel,
+  capability: ModelsDevModel | undefined,
+): { input: string[]; output: string[] } {
+  const declared = model.modalities?.input ?? capability?.modalities?.input;
+  const input = (declared ?? ["text"]).filter((value) =>
+    KNOWN_INPUT_MODALITIES.has(value),
+  );
+  if (input.length === 0) input.push("text");
+  if (!input.includes("text")) input.unshift("text");
+  return { input, output: ["text"] };
+}
+
 export function buildModels(
   models: CatalogModel[],
   candidates: RegistryCandidate[] = [],
@@ -313,13 +364,14 @@ export function buildModels(
     // free-pi enforces a context window on every model regardless of what
     // models.dev reports for the upstream provider. The provider CLI starts at
     // 200k, but the gateway does not publish its ceiling: `verifyGatewayWindow`
-    // measures it and the result is used here from the next start. Real steps
-    // also prove the gateway accepted at least their prompt size. A published
-    // catalog field still wins, but only inside that measured ceiling, so an
-    // advertised 1M window can never push a session past what the gateway takes.
+    // measures it (growing past 200k when the gateway accepts more) and the
+    // result is used here from the next start. Real steps also prove the gateway
+    // accepted at least their prompt size. A published catalog field still wins,
+    // but only inside that measured ceiling, so an advertised 1M window can
+    // never push a session past what the gateway takes.
     const observed = options.live?.models[model.id]?.maxPromptTokens ?? 0;
     const contextCeiling = Math.min(
-      1_000_000,
+      MAX_CONTEXT_WINDOW,
       Math.max(options.live?.window?.tokens ?? CONTEXT_WINDOW, observed),
     );
     const limitContext = Math.min(
@@ -331,6 +383,9 @@ export function buildModels(
       ) ?? contextCeiling,
       contextCeiling,
     );
+    // Reasoning shares the output budget. When models.dev knows the upstream
+    // model emits more than the CLI's 32k, advertise that larger budget (up to a
+    // sane ceiling) instead of truncating the chain of thought.
     const limitOutput = Math.min(
       positiveNumber(
         model.max_tokens,
@@ -339,10 +394,17 @@ export function buildModels(
         model.limit?.output,
         capability?.limit?.output,
       ) ?? MAX_OUTPUT_TOKENS,
-      MAX_OUTPUT_TOKENS,
+      MAX_OUTPUT_TOKENS_CEILING,
     );
     const defaultEffort = reasoning
       ? preferredReasoningEffort(reasoningOptions, options.reasoningEffort)
+      : undefined;
+    const variants = reasoning
+      ? modelVariants(reasoningOptions, limitOutput)
+      : {};
+    const modalities = modelModalities(model, capability);
+    const declaredOptions = reasoning
+      ? effectiveReasoningOptions(reasoningOptions, variants)
       : undefined;
     result[model.id] = {
       id: model.id,
@@ -353,22 +415,22 @@ export function buildModels(
         (model.section === "defense" ? "defense" : ""),
       release_date: model.release_date ?? capability?.release_date,
       reasoning,
-      reasoning_options: reasoningOptions,
-      variants: reasoning ? modelVariants(reasoningOptions, limitOutput) : {},
+      ...(declaredOptions && declaredOptions.length > 0
+        ? { reasoning_options: declaredOptions }
+        : {}),
+      variants,
       ...(defaultEffort ? { settings: { reasoningEffort: defaultEffort } } : {}),
       enabled: model.unavailable !== true,
       temperature: model.temperature ?? capability?.temperature ?? true,
       tool_call: model.tool_call ?? capability?.tool_call ?? true,
-      attachment: model.attachment ?? capability?.attachment ?? false,
+      attachment:
+        model.attachment ??
+        capability?.attachment ??
+        modalities.input.includes("image"),
       interleaved: model.interleaved ?? capability?.interleaved,
       cost: modelCost(model, capability),
       limit: { context: limitContext, output: limitOutput },
-      modalities: {
-        input: model.modalities?.input ??
-          capability?.modalities?.input ?? ["text"],
-        output: model.modalities?.output ??
-          capability?.modalities?.output ?? ["text"],
-      },
+      modalities,
       status: model.unavailable ? "deprecated" : "active",
     };
   }

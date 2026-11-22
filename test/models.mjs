@@ -5,7 +5,7 @@ const { accountAccess, filterAccessibleModels } = await import(
   "../dist/catalog/models.js"
 );
 const { toV2Models } = await import("../dist/catalog/v2.js");
-const { CONTEXT_WINDOW, MAX_OUTPUT_TOKENS, CREDITS_PER_USD } = await import(
+const { CONTEXT_WINDOW, MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_CEILING, CREDITS_PER_USD } = await import(
   "../dist/constants.js"
 );
 
@@ -56,11 +56,53 @@ assert.deepEqual(free.variants, {
   low: { reasoningEffort: "low" },
   medium: { reasoningEffort: "medium" },
   high: { reasoningEffort: "high" },
+  max: { reasoningEffort: "max" },
 });
+// The picker reads the same complete level list the plugin can send.
+assert.deepEqual(free.reasoning_options, [
+  {
+    type: "effort",
+    values: ["none", "minimal", "low", "medium", "high", "max"],
+  },
+]);
 // The CLI's levels are always advertised and `medium` is the default; leaving
 // the effort unset made free models answer before thinking.
-assert.deepEqual(free.settings, { reasoningEffort: "medium" });
+assert.deepEqual(free.settings, { reasoningEffort: "high" });
 assert.equal(free.enabled, true);
+
+// A multimodal upstream is advertised with image input even when models.dev
+// omits the `attachment` flag, and image output is never advertised.
+const multimodal = buildModels(
+  [{ id: "multi", display_name: "Multi" }],
+  [
+    {
+      providerID: "vendor",
+      modelID: "multi",
+      model: {
+        name: "Multi",
+        modalities: { input: ["text", "image"], output: ["image"] },
+      },
+    },
+  ],
+)["multi"];
+assert.equal(multimodal.attachment, true);
+assert.deepEqual(multimodal.modalities, {
+  input: ["text", "image"],
+  output: ["text"],
+});
+
+// Unknown modality values are dropped instead of confusing the picker.
+const odd = buildModels(
+  [{ id: "odd", display_name: "Odd" }],
+  [
+    {
+      providerID: "vendor",
+      modelID: "odd",
+      model: { name: "Odd", modalities: { input: ["image", "hologram"] } },
+    },
+  ],
+)["odd"];
+assert.deepEqual(odd.modalities.input, ["text", "image"]);
 
 // free-pi bills in credits, not per-token USD, so every model reports zero
 // cost just like the provider CLI's model registration.
@@ -120,7 +162,7 @@ const oversized = buildModels(
 )["oversized"];
 assert.deepEqual(oversized.limit, {
   context: CONTEXT_WINDOW,
-  output: MAX_OUTPUT_TOKENS,
+  output: MAX_OUTPUT_TOKENS_CEILING,
 });
 
 // Every reasoning model exposes the CLI's levels; catalog-specific ones such as
@@ -131,6 +173,7 @@ const cliLevels = {
   low: { reasoningEffort: "low" },
   medium: { reasoningEffort: "medium" },
   high: { reasoningEffort: "high" },
+  max: { reasoningEffort: "max" },
 };
 assert.deepEqual(modelVariants([{ type: "toggle" }], 8_192), cliLevels);
 assert.deepEqual(
@@ -157,12 +200,12 @@ assert.deepEqual(modelVariants(undefined, 8_192), cliLevels);
 const { preferredReasoningEffort, isReasoningEffort } = await import(
   "../dist/catalog/models.js"
 );
-assert.equal(preferredReasoningEffort(undefined), "medium");
+assert.equal(preferredReasoningEffort(undefined), "high");
 assert.equal(
   preferredReasoningEffort([{ type: "effort", values: ["low", "high"] }]),
-  "medium",
+  "high",
 );
-assert.equal(preferredReasoningEffort([{ type: "toggle" }]), "medium");
+assert.equal(preferredReasoningEffort([{ type: "toggle" }]), "high");
 assert.equal(
   preferredReasoningEffort([{ type: "budget_tokens", min: 1, max: 2 }]),
   "high",
@@ -176,18 +219,19 @@ assert.equal(isReasoningEffort("xhigh"), false);
 const [v2] = toV2Models("free-pi", { "free-model": free });
 assert.equal(v2.providerID, "free-pi");
 assert.equal(v2.capabilities.tools, false);
-// free-pi only accepts text, whatever models.dev reports upstream. Images are
-// handled by the CLI's own tools, never as native chat parts.
-assert.deepEqual(v2.capabilities.input, ["text"]);
+// Multimodal upstreams keep the image capability models.dev reports; the chat
+// route never produces images, so output stays text.
+assert.deepEqual(v2.capabilities.input, ["text", "image"]);
 assert.deepEqual(v2.capabilities.output, ["text"]);
 assert.equal(v2.capabilities.temperature, false);
-assert.deepEqual(v2.settings, { reasoningEffort: "medium" });
+assert.deepEqual(v2.settings, { reasoningEffort: "high" });
 assert.deepEqual(v2.variants, [
   { id: "none", settings: { reasoningEffort: "none" } },
   { id: "minimal", settings: { reasoningEffort: "minimal" } },
   { id: "low", settings: { reasoningEffort: "low" } },
   { id: "medium", settings: { reasoningEffort: "medium" } },
   { id: "high", settings: { reasoningEffort: "high" } },
+  { id: "max", settings: { reasoningEffort: "max" } },
 ]);
 assert.deepEqual(v2.limit, { context: 123_456, output: 4_096 });
 assert.deepEqual(v2.cost, [

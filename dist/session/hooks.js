@@ -2,7 +2,7 @@
 import { ensureAdImpression } from "../ads/impression.js";
 import { resolveAdTurn } from "../ads/resolve.js";
 import { resolveToken } from "../auth/token.js";
-import { AD_CONTEXT_HEADER, AD_CONTEXT_OPT_OUT, CONCURRENT_RETRY_BASE_MS, CONCURRENT_RETRY_MAX, CONCURRENT_RETRY_MAX_DELAY_MS, DEFENSE_PROVIDER_ID, FREE_PI_COMPACTION_GUIDANCE, FREE_PI_COMPACTION_MARKER, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER, MAX_OUTPUT_TOKENS, PROVIDER_ID, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, SUBAGENT_HEADER, } from "../constants.js";
+import { AD_CONTEXT_HEADER, AD_CONTEXT_OPT_OUT, CONCURRENT_RETRY_BASE_MS, CONCURRENT_RETRY_MAX, CONCURRENT_RETRY_MAX_DELAY_MS, DEFENSE_PROVIDER_ID, FREE_PI_COMPACTION_GUIDANCE, FREE_PI_COMPACTION_MARKER, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER, MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_CEILING, PROVIDER_ID, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, SUBAGENT_HEADER, } from "../constants.js";
 import { closeFreePiSession } from "../api/session.js";
 import { rewriteContextOverflowResponse, rewriteLimitResponse, } from "../errors/limit.js";
 import { parseFreePiError } from "../errors/parse.js";
@@ -52,7 +52,9 @@ async function applyGeneration(deps, event, kind) {
     }
     const modelID = event.model?.id;
     const limit = deps.state.outputLimits.get(`${event.model.providerID}/${modelID}`);
-    const cap = Math.min(limit ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS);
+    // Reasoning shares the output budget; a model that publishes more than the
+    // CLI's 32k keeps that larger budget (up to the plugin ceiling).
+    const cap = Math.min(limit ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_CEILING);
     if (event.options) {
         const current = event.options.maxTokens;
         if (current === undefined || current > cap)

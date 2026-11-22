@@ -17,6 +17,7 @@ import {
   FREE_PI_GUIDANCE,
   FREE_PI_GUIDANCE_MARKER,
   MAX_OUTPUT_TOKENS,
+  MAX_OUTPUT_TOKENS_CEILING,
   PROVIDER_ID,
   RETRY_BASE_DELAY_MS,
   RETRY_MAX_DELAY_MS,
@@ -136,7 +137,9 @@ async function applyGeneration(
   const limit = deps.state.outputLimits.get(
     `${event.model.providerID}/${modelID}`,
   );
-  const cap = Math.min(limit ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS);
+  // Reasoning shares the output budget; a model that publishes more than the
+  // CLI's 32k keeps that larger budget (up to the plugin ceiling).
+  const cap = Math.min(limit ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_CEILING);
   if (event.options) {
     const current = event.options.maxTokens;
     if (current === undefined || current > cap) event.options.maxTokens = cap;

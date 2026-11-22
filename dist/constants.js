@@ -13,7 +13,16 @@ export const CONSENT_VERSION = "4";
  * with what the server actually accepts.
  */
 export const CONTEXT_WINDOW = 200_000;
+/** Largest window the plugin will ever advertise after measuring the gateway. */
+export const MAX_CONTEXT_WINDOW = 1_000_000;
 export const MAX_OUTPUT_TOKENS = 32_768;
+/**
+ * Upper bound for a model that publishes a larger output budget. Reasoning
+ * tokens share this budget, so a model that can emit more must not be pinned to
+ * the CLI's 32k: a long chain of thought would consume it and leave `content`
+ * empty.
+ */
+export const MAX_OUTPUT_TOKENS_CEILING = 131_072;
 /** How long a measured gateway window is trusted before checking again. */
 export const VERIFY_LIMITS_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 export const AD_CONTEXT_HEADER = "x-ad-context";
@@ -26,11 +35,13 @@ export const SUBAGENT_HEADER = "x-freepi-subagent";
 /**
  * The provider CLI starts with thinking off, but leaving `reasoning_effort`
  * unset makes the gateway answer in a hurry: the free models spend only a few
- * dozen reasoning tokens even on tasks that need planning. The plugin therefore
- * asks for `medium` by default and keeps the CLI's levels as variants, so
- * `none`/`minimal` are still one pick away when speed matters more than care.
+ * dozen reasoning tokens even on tasks that need planning. The gateway accepts
+ * every level (measured with curl_cffi) but currently does not let the level
+ * change how long the upstream thinks, so the plugin also asks for explicit
+ * step-by-step checking in the prompt and defaults to `high`. `none`/`minimal`
+ * stay one pick away when speed matters more than care.
  */
-export const DEFAULT_REASONING_EFFORT = "medium";
+export const DEFAULT_REASONING_EFFORT = "high";
 export const REASONING_EFFORTS = [
     "none",
     "minimal",
@@ -45,6 +56,7 @@ export const DEFAULT_THINKING_LEVELS = [
     "low",
     "medium",
     "high",
+    "max",
 ];
 /**
  * Injected into every primary free-pi request. OpenCode already supplies the
@@ -54,6 +66,7 @@ export const DEFAULT_THINKING_LEVELS = [
  */
 export const FREE_PI_GUIDANCE = `# free-pi working rules
 - Answer the user's latest request and keep their constraints; do not switch to a different task.
+- Slow down on multi-step work (arithmetic, counting, logic, dates, units, planning, debugging): write out each step, recompute the result a second way, and only then answer. On those tasks a correct answer after a dozen explicit steps beats a fast guess; do not stop at the first plausible number.
 - Read the files involved before editing and run the project's checks afterwards. Never say a test, build or command passed unless you ran it and saw it pass.
 - Treat the conversation above as memory: reuse earlier decisions, file paths, identifiers and results. If something is genuinely missing, say what is missing instead of guessing.
 - Use the available tools (read, grep, glob, bash, edit) for real work; do not describe hypothetical commands as if they ran.

@@ -13,6 +13,12 @@ export declare function modelCost(_model: CatalogModel, _capability?: ModelsDevM
 export declare function modelRegistryCandidates(registry: ModelRegistry | undefined): RegistryCandidate[];
 export declare function modelCapability(model: CatalogModel, candidates: RegistryCandidate[]): ModelsDevModel | undefined;
 export declare function modelVariants(options: ReasoningOption[] | undefined, _outputLimit: number): VariantMap;
+/**
+ * The levels the model actually exposes, so OpenCode's picker and the
+ * `reasoning_effort` values the plugin sends come from the same list. The
+ * gateway accepts every level for every model, so the CLI set always applies.
+ */
+export declare function effectiveReasoningOptions(options: ReasoningOption[] | undefined, variants: VariantMap): ReasoningOption[];
 export declare function isReasoningEffort(value: unknown): value is string;
 /**
  * The effort sent when no variant is selected. `false` leaves the gateway's
