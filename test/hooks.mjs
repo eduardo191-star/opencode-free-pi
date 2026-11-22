@@ -13,7 +13,12 @@ const { registerSessionHooks } = await import("../dist/session/hooks.js");
 const { createRuntimeState } = await import("../dist/state.js");
 const { observeStepUsage } = await import("../dist/session/cache.js");
 const { recordUsage } = await import("../dist/session/usage.js");
-const { MAX_OUTPUT_TOKENS, EFFICIENCY_RULE } = await import("../dist/constants.js");
+const {
+  MAX_OUTPUT_TOKENS,
+  EFFICIENCY_RULE,
+  FREE_PI_GUIDANCE_MARKER,
+  FREE_PI_COMPACTION_MARKER,
+} = await import("../dist/constants.js");
 
 const calls = [];
 const realFetch = globalThis.fetch;
@@ -128,6 +133,34 @@ try {
   assert.ok(
     contextEvent.system.some((part) => part.text === EFFICIENCY_RULE),
     "efficiency rule is appended",
+  );
+  assert.ok(
+    contextEvent.system.some(
+      (part) =>
+        typeof part.text === "string" &&
+        part.text.startsWith(FREE_PI_GUIDANCE_MARKER),
+    ),
+    "free-pi working rules are appended",
+  );
+  // Reusing the same request must not stack duplicate guidance blocks.
+  const reusedSystem = [...contextEvent.system];
+  await invoke("context", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    system: reusedSystem,
+    messages: [userMessage],
+    options: {},
+  });
+  assert.equal(
+    reusedSystem.filter(
+      (part) =>
+        typeof part.text === "string" &&
+        part.text.startsWith(FREE_PI_GUIDANCE_MARKER),
+    ).length,
+    1,
+    "guidance is not duplicated",
   );
 
   // Outgoing model request: auth, session, client version, experiment and turn headers.
@@ -456,8 +489,9 @@ try {
   await toolAfter.callback(otherProviderEvent);
   assert.equal(otherProviderEvent.result.content[0].type, "file");
 
-  // A compaction marks the next request with the number of folded messages.
-  await invoke("compaction", "free-pi", {
+  // A compaction marks the next request with the number of folded messages and
+  // asks the summarizer to keep the facts a later turn needs.
+  const compactEvent = await invoke("compaction", "free-pi", {
     sessionID: "ses_parent",
     agent: "build",
     kind: "compaction",
@@ -466,6 +500,14 @@ try {
     messages: [userMessage, userMessage, userMessage],
     options: {},
   });
+  assert.ok(
+    compactEvent.system.some(
+      (part) =>
+        typeof part.text === "string" &&
+        part.text.startsWith(FREE_PI_COMPACTION_MARKER),
+    ),
+    "compaction guidance is appended",
+  );
   const afterCompaction = await invoke("model.request", "free-pi", {
     sessionID: "ses_parent",
     agent: "build",

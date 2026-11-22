@@ -51,12 +51,15 @@ assert.deepEqual(free.modalities, {
   output: ["text"],
 });
 assert.deepEqual(free.variants, {
+  none: { reasoningEffort: "none" },
+  minimal: { reasoningEffort: "minimal" },
   low: { reasoningEffort: "low" },
+  medium: { reasoningEffort: "medium" },
   high: { reasoningEffort: "high" },
 });
-// A model that only lists `low`/`high` gets the strongest of those levels as
-// its default; sending no effort made free models answer before thinking.
-assert.deepEqual(free.settings, { reasoningEffort: "high" });
+// The CLI's levels are always advertised and `medium` is the default; leaving
+// the effort unset made free models answer before thinking.
+assert.deepEqual(free.settings, { reasoningEffort: "medium" });
 assert.equal(free.enabled, true);
 
 // free-pi bills in credits, not per-token USD, so every model reports zero
@@ -120,11 +123,16 @@ assert.deepEqual(oversized.limit, {
   output: MAX_OUTPUT_TOKENS,
 });
 
-// Variant shapes match the reasoning options.
-assert.deepEqual(modelVariants([{ type: "toggle" }], 8_192), {
+// Every reasoning model exposes the CLI's levels; catalog-specific ones such as
+// `max` are added on top.
+const cliLevels = {
   none: { reasoningEffort: "none" },
+  minimal: { reasoningEffort: "minimal" },
+  low: { reasoningEffort: "low" },
+  medium: { reasoningEffort: "medium" },
   high: { reasoningEffort: "high" },
-});
+};
+assert.deepEqual(modelVariants([{ type: "toggle" }], 8_192), cliLevels);
 assert.deepEqual(
   modelVariants(
     [
@@ -133,48 +141,28 @@ assert.deepEqual(
     ],
     8_192,
   ),
-  {
-    low: { reasoningEffort: "low" },
-    medium: { reasoningEffort: "medium" },
-    high: { reasoningEffort: "high" },
-  },
+  cliLevels,
 );
-// Budget-style options keep their top levels, but OpenCode's openai-compatible
+// Budget-style options add their top level, but OpenCode's openai-compatible
 // route only forwards `reasoning_effort`; the budget fields would be inert.
 assert.deepEqual(
   modelVariants([{ type: "budget_tokens", min: 1_000, max: 1_000_000 }], 8_192),
-  {
-    high: { reasoningEffort: "high" },
-    max: { reasoningEffort: "max" },
-  },
+  { ...cliLevels, max: { reasoningEffort: "max" } },
 );
-// Without catalog options the CLI still offers these levels to every
-// reasoning model.
-assert.deepEqual(modelVariants(undefined, 8_192), {
-  none: { reasoningEffort: "none" },
-  minimal: { reasoningEffort: "minimal" },
-  low: { reasoningEffort: "low" },
-  medium: { reasoningEffort: "medium" },
-  high: { reasoningEffort: "high" },
-});
+// Without catalog options the same CLI set applies.
+assert.deepEqual(modelVariants(undefined, 8_192), cliLevels);
 
-// The default effort is `medium` whenever the model accepts it, because an
-// unset effort makes the free models skip planning altogether.
+// The default effort is `medium` for every model, because an unset effort made
+// the free models skip planning altogether. Budget-style catalogs use `high`.
 const { preferredReasoningEffort, isReasoningEffort } = await import(
   "../dist/catalog/models.js"
 );
 assert.equal(preferredReasoningEffort(undefined), "medium");
 assert.equal(
   preferredReasoningEffort([{ type: "effort", values: ["low", "high"] }]),
-  "high",
-);
-assert.equal(
-  preferredReasoningEffort([
-    { type: "effort", values: ["minimal", "low", "medium", "high"] },
-  ]),
   "medium",
 );
-assert.equal(preferredReasoningEffort([{ type: "toggle" }]), "high");
+assert.equal(preferredReasoningEffort([{ type: "toggle" }]), "medium");
 assert.equal(
   preferredReasoningEffort([{ type: "budget_tokens", min: 1, max: 2 }]),
   "high",
@@ -193,9 +181,12 @@ assert.equal(v2.capabilities.tools, false);
 assert.deepEqual(v2.capabilities.input, ["text"]);
 assert.deepEqual(v2.capabilities.output, ["text"]);
 assert.equal(v2.capabilities.temperature, false);
-assert.deepEqual(v2.settings, { reasoningEffort: "high" });
+assert.deepEqual(v2.settings, { reasoningEffort: "medium" });
 assert.deepEqual(v2.variants, [
+  { id: "none", settings: { reasoningEffort: "none" } },
+  { id: "minimal", settings: { reasoningEffort: "minimal" } },
   { id: "low", settings: { reasoningEffort: "low" } },
+  { id: "medium", settings: { reasoningEffort: "medium" } },
   { id: "high", settings: { reasoningEffort: "high" } },
 ]);
 assert.deepEqual(v2.limit, { context: 123_456, output: 4_096 });

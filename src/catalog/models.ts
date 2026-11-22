@@ -175,15 +175,15 @@ export function modelVariants(
   options: ReasoningOption[] | undefined,
   _outputLimit: number,
 ): VariantMap {
+  // The provider CLI registers every model with `reasoning: true` and an unset
+  // `thinkingLevelMap`, so it offers these levels to every model. models.dev
+  // lists fewer levels for some upstream models, but the gateway accepts the
+  // CLI's set, and hiding levels only makes the picker disagree with the CLI.
   const variants: VariantMap = {};
-  // The provider CLI offers these levels to every reasoning model because its
-  // `thinkingLevelMap` is unset; `xhigh` and `max` stay opt-in.
-  if (!options || options.length === 0) {
-    for (const level of DEFAULT_THINKING_LEVELS) {
-      variants[level] = { reasoningEffort: level };
-    }
-    return variants;
+  for (const level of DEFAULT_THINKING_LEVELS) {
+    variants[level] = { reasoningEffort: level };
   }
+  if (!options || options.length === 0) return variants;
   const effort = options.find(
     (option): option is Extract<ReasoningOption, { type: "effort" }> =>
       option.type === "effort",
@@ -192,11 +192,6 @@ export function modelVariants(
     for (const value of effort.values) {
       variants[value] = { reasoningEffort: value };
     }
-    return variants;
-  }
-  if (options.some((option) => option.type === "toggle")) {
-    variants.none = { reasoningEffort: "none" };
-    variants.high = { reasoningEffort: "high" };
   }
   if (options.some((option) => option.type === "budget_tokens")) {
     budgetVariants(variants);
@@ -223,19 +218,10 @@ export function preferredReasoningEffort(
 ): string | undefined {
   if (configured === false) return undefined;
   if (configured) return configured;
-  if (!options || options.length === 0) return DEFAULT_REASONING_EFFORT;
-  const effort = options.find(
-    (option): option is Extract<ReasoningOption, { type: "effort" }> =>
-      option.type === "effort",
-  );
-  if (effort) {
-    if (effort.values.includes(DEFAULT_REASONING_EFFORT))
-      return DEFAULT_REASONING_EFFORT;
-    if (effort.values.includes("high")) return "high";
-    return effort.values[effort.values.length - 1];
-  }
-  if (options.some((option) => option.type === "toggle")) return "high";
-  if (options.some((option) => option.type === "budget_tokens")) return "high";
+  // The provider CLI's levels are the source of truth: models.dev often lists
+  // only a subset, but the gateway accepts the CLI set. `medium` is the sane
+  // middle ground between the CLI's off default and burning tokens on `high`.
+  if (options?.some((option) => option.type === "budget_tokens")) return "high";
   return DEFAULT_REASONING_EFFORT;
 }
 
@@ -314,7 +300,10 @@ export function buildModels(
   for (const model of models) {
     if (!model.id) continue;
     const capability = modelCapability(model, candidates);
-    const reasoning = model.reasoning ?? capability?.reasoning ?? true;
+    // The provider CLI registers every model as `reasoning: true`; models.dev
+    // sometimes omits or disagrees for the upstream alias. Trust the catalog's
+    // explicit answer, otherwise keep reasoning on like the CLI does.
+    const reasoning = model.reasoning ?? true;
     const reasoningOptions =
       model.reasoning_options ?? capability?.reasoning_options;
     // free-pi enforces a 200k input window and 32k output cap on every model,

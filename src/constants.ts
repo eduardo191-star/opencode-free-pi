@@ -49,6 +49,33 @@ export const DEFAULT_THINKING_LEVELS = [
   "high",
 ] as const;
 
+/**
+ * Injected into every primary free-pi request. OpenCode already supplies the
+ * coding instructions; this block covers the failure modes the weaker free
+ * models show: skipping analysis, inventing verification, and ignoring the
+ * context the conversation already established.
+ */
+export const FREE_PI_GUIDANCE = `# free-pi working rules
+- Answer the user's latest request and keep their constraints; do not switch to a different task.
+- Read the files involved before editing and run the project's checks afterwards. Never say a test, build or command passed unless you ran it and saw it pass.
+- Treat the conversation above as memory: reuse earlier decisions, file paths, identifiers and results. If something is genuinely missing, say what is missing instead of guessing.
+- Use the available tools (read, grep, glob, bash, edit) for real work; do not describe hypothetical commands as if they ran.
+- Never claim to have compacted, summarized or cleared context unless that actually happened.
+- Continue until the request is finished, then report concisely what changed and what you verified.`;
+export const FREE_PI_GUIDANCE_MARKER = "# free-pi working rules";
+
+/**
+ * Appended to OpenCode's compaction request. Its default summary prompt asks
+ * for terse checkpoints, which is fine for strong models but loses the exact
+ * facts the free models need; spell out what must survive the rewrite.
+ */
+export const FREE_PI_COMPACTION_GUIDANCE = `# free-pi compaction rules
+- Keep every unresolved user requirement and constraint, using their wording when a later agent must act on them.
+- Keep decisions and their reasons, exact file paths and symbols, commands with the observed result, error strings, and work still pending.
+- Preserve details that explain why the current state looks the way it does; the next agent cannot re-read the history this summary replaces.
+- Do not invent progress or results that are not in the conversation.`;
+export const FREE_PI_COMPACTION_MARKER = "# free-pi compaction rules";
+
 /** pi-ai's HTTP idle timeout for headers and body chunks. */
 export const HEADER_TIMEOUT_MS = 300_000;
 export const CHUNK_TIMEOUT_MS = 300_000;

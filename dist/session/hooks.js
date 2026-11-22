@@ -2,7 +2,7 @@
 import { ensureAdImpression } from "../ads/impression.js";
 import { resolveAdTurn } from "../ads/resolve.js";
 import { resolveToken } from "../auth/token.js";
-import { AD_CONTEXT_HEADER, AD_CONTEXT_OPT_OUT, COST_EXPERIMENT_HEADER, CONCURRENT_RETRY_BASE_MS, CONCURRENT_RETRY_MAX, CONCURRENT_RETRY_MAX_DELAY_MS, DEFENSE_PROVIDER_ID, EFFICIENCY_RULE, MAX_OUTPUT_TOKENS, PROVIDER_ID, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, SUBAGENT_HEADER, } from "../constants.js";
+import { AD_CONTEXT_HEADER, AD_CONTEXT_OPT_OUT, COST_EXPERIMENT_HEADER, CONCURRENT_RETRY_BASE_MS, CONCURRENT_RETRY_MAX, CONCURRENT_RETRY_MAX_DELAY_MS, DEFENSE_PROVIDER_ID, EFFICIENCY_RULE, FREE_PI_COMPACTION_GUIDANCE, FREE_PI_COMPACTION_MARKER, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER, MAX_OUTPUT_TOKENS, PROVIDER_ID, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, SUBAGENT_HEADER, } from "../constants.js";
 import { closeFreePiSession } from "../api/session.js";
 import { rewriteContextOverflowResponse, rewriteLimitResponse, } from "../errors/limit.js";
 import { parseFreePiError } from "../errors/parse.js";
@@ -27,6 +27,17 @@ function rememberPending(deps, key, turn) {
     trimMap(deps.state.pendingAdTurns, PENDING_LIMIT);
     deps.state.pendingAdTurns.set(key, turn);
 }
+/** Adds a system block once, even when OpenCode reuses the same event. */
+function appendSystemGuidance(event, text, marker) {
+    const system = Array.isArray(event.system) ? event.system : [];
+    if (system.some((part) => part?.type === "text" &&
+        typeof part.text === "string" &&
+        part.text.startsWith(marker))) {
+        return;
+    }
+    system.push({ type: "text", text });
+    event.system = system;
+}
 /** Caps output tokens, applies the efficiency rule and derives the ad turn. */
 async function applyGeneration(deps, event, kind) {
     if (!isFreePiProvider(event.model?.providerID))
@@ -48,9 +59,15 @@ async function applyGeneration(deps, event, kind) {
             event.options.maxTokens = cap;
     }
     if (kind === "compaction") {
+        appendSystemGuidance(event, FREE_PI_COMPACTION_GUIDANCE, FREE_PI_COMPACTION_MARKER);
         // OpenCode sends the messages it is folding into the summary, which is the
         // same set pi reports through `session_before_compact`.
         recordCompaction(deps, event.sessionID, Array.isArray(event.messages) ? event.messages.length : 0);
+    }
+    else if (kind === "primary") {
+        // The free models tend to skip planning and claim work they did not do;
+        // the CLI gets a much larger agent prompt. This is the compact equivalent.
+        appendSystemGuidance(event, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER);
     }
     if (deps.state.costExperimentArm === "efficiency") {
         const system = Array.isArray(event.system) ? event.system : [];

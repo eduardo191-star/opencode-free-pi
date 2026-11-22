@@ -28,6 +28,21 @@ export declare const EFFICIENCY_RULE = "- When several independent reads or sear
 export declare const DEFAULT_REASONING_EFFORT = "medium";
 export declare const REASONING_EFFORTS: readonly ["none", "minimal", "low", "medium", "high", "max"];
 export declare const DEFAULT_THINKING_LEVELS: readonly ["none", "minimal", "low", "medium", "high"];
+/**
+ * Injected into every primary free-pi request. OpenCode already supplies the
+ * coding instructions; this block covers the failure modes the weaker free
+ * models show: skipping analysis, inventing verification, and ignoring the
+ * context the conversation already established.
+ */
+export declare const FREE_PI_GUIDANCE = "# free-pi working rules\n- Answer the user's latest request and keep their constraints; do not switch to a different task.\n- Read the files involved before editing and run the project's checks afterwards. Never say a test, build or command passed unless you ran it and saw it pass.\n- Treat the conversation above as memory: reuse earlier decisions, file paths, identifiers and results. If something is genuinely missing, say what is missing instead of guessing.\n- Use the available tools (read, grep, glob, bash, edit) for real work; do not describe hypothetical commands as if they ran.\n- Never claim to have compacted, summarized or cleared context unless that actually happened.\n- Continue until the request is finished, then report concisely what changed and what you verified.";
+export declare const FREE_PI_GUIDANCE_MARKER = "# free-pi working rules";
+/**
+ * Appended to OpenCode's compaction request. Its default summary prompt asks
+ * for terse checkpoints, which is fine for strong models but loses the exact
+ * facts the free models need; spell out what must survive the rewrite.
+ */
+export declare const FREE_PI_COMPACTION_GUIDANCE = "# free-pi compaction rules\n- Keep every unresolved user requirement and constraint, using their wording when a later agent must act on them.\n- Keep decisions and their reasons, exact file paths and symbols, commands with the observed result, error strings, and work still pending.\n- Preserve details that explain why the current state looks the way it does; the next agent cannot re-read the history this summary replaces.\n- Do not invent progress or results that are not in the conversation.";
+export declare const FREE_PI_COMPACTION_MARKER = "# free-pi compaction rules";
 /** pi-ai's HTTP idle timeout for headers and body chunks. */
 export declare const HEADER_TIMEOUT_MS = 300000;
 export declare const CHUNK_TIMEOUT_MS = 300000;

@@ -98,12 +98,27 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - **Pensamiento por defecto**: el plugin pide `reasoning_effort: "medium"`
   cuando el modelo no trae variante elegida. Dejarlo sin definir hacía que los
   modelos gratuitos respondieran con prisa, gastando apenas unas decenas de
-  tokens de razonamiento incluso en tareas que requieren planificar. Si el
-  catálogo del modelo solo anuncia `low`/`high`, se usa `high`. El selector
-  sigue ofreciendo `none`, `minimal`, `low`, `medium` y `high`, y la opción
-  `reasoningEffort: false` del plugin recupera el comportamiento anterior (nivel
-  del servidor). No se anuncian `thinking_budget` ni `thinking`, porque la ruta
-  `openai-compatible` de OpenCode los descarta.
+  tokens de razonamiento incluso en tareas que requieren planificar. El
+  selector ofrece siempre `none`, `minimal`, `low`, `medium` y `high`, igual
+  que los niveles del CLI, y añade `max` cuando el catálogo lo declara; los
+  modelos de presupuesto usan `high`. La opción `reasoningEffort: false` del
+  plugin recupera el nivel del servidor. No se anuncian `thinking_budget` ni
+  `thinking`, porque la ruta `openai-compatible` de OpenCode los descarta.
+- **Capacidades iguales al CLI**: todos los modelos se registran con
+  razonamiento activo, entrada solo de texto, coste cero y la misma ventana de
+  200k con 32k de salida que usa `pi`. No se fuerza temperatura ni `top_p`: la
+  petición real no los incluye, así que el gateway aplica su propio valor. El
+  prompt se envía con rol `system`, no `developer`.
+- **Reglas de trabajo en el prompt**: cada petición principal de free-pi añade
+  un bloque corto al system prompt con lo que los modelos gratuitos suelen
+  omitir: leer antes de editar, ejecutar las comprobaciones de verdad, no
+  afirmar que algo pasó si no se ejecutó, reutilizar las decisiones y rutas ya
+  establecidas en la conversación y no fingir que se compactó el contexto.
+- **Compactación con instrucciones**: el resumen de compactación recibe además
+  un bloque que le pide conservar requisitos sin resolver, decisiones y sus
+  motivos, rutas y símbolos exactos, comandos con su resultado, errores y
+  trabajo pendiente. Sin eso, los modelos gratuitos producían resúmenes
+  demasiado escuetos para continuar la tarea.
 - **Solo modelos utilizables**: al arrancar se consulta `/me` y el selector
   `/model` incluye únicamente lo que la cuenta puede usar: los modelos
   `free: true` siempre, los de pago mientras queden créditos de la cuota o
