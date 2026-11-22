@@ -1,12 +1,12 @@
 /** Logging for the plugin. V2 has no `app.log`, so messages go to the console and a file. */
 import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { cacheDir } from "./utils/cache.js";
+import { dataDir } from "./utils/data-dir.js";
 const MAX_LOG_BYTES = 1_000_000;
 let fileFailureReported = false;
 function logFile() {
     const configured = process.env.FREE_PI_LOG_FILE?.trim();
-    return configured || join(cacheDir(), "plugin.log");
+    return configured || join(dataDir(), "plugin.log");
 }
 function rotate(file) {
     try {

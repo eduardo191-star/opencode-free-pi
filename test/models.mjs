@@ -206,17 +206,6 @@ assert.equal(unavailable.status, "deprecated");
 const [v2Gone] = toV2Models("free-pi", { gone: unavailable });
 assert.equal(v2Gone.enabled, false);
 
-// The compact100 arm lowers the window so OpenCode compacts at 100k.
-const compact = buildModels(
-  [{ id: "compact", display_name: "Compact" }],
-  [],
-  { compact100: true },
-)["compact"];
-assert.deepEqual(compact.limit, {
-  context: 117_647,
-  output: MAX_OUTPUT_TOKENS,
-});
-
 // Only models the signed-in account can actually use are registered.
 const catalogModels = [
   { id: "free-unlimited", free: true },

@@ -2,7 +2,7 @@
 
 import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { cacheDir } from "./utils/cache.js";
+import { dataDir } from "./utils/data-dir.js";
 
 export type LogLevel = "info" | "warn" | "error" | "debug";
 
@@ -19,7 +19,7 @@ let fileFailureReported = false;
 
 function logFile(): string {
   const configured = process.env.FREE_PI_LOG_FILE?.trim();
-  return configured || join(cacheDir(), "plugin.log");
+  return configured || join(dataDir(), "plugin.log");
 }
 
 function rotate(file: string): void {

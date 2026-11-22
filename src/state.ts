@@ -3,7 +3,6 @@
 import { DEFAULT_CLIENT_VERSION } from "./constants.js";
 import type {
   AdTurn,
-  CacheMissState,
   Catalog,
   FreePiError,
   ModelRegistry,
@@ -26,7 +25,6 @@ export type RuntimeState = {
   cachedRegistryAt: number;
   registryAttemptAt: number;
   registryPromise?: Promise<ModelRegistry | undefined>;
-  costExperimentArm?: string;
   lastCatalogNotice?: string;
   lastQuotaNotice?: string;
   catalogModels: Catalog;
@@ -64,20 +62,7 @@ export type RuntimeState = {
   pendingAdTurns: Map<string, AdTurn>;
   adImpressions: Map<string, Promise<void>>;
   trackedModels: Map<string, TrackedModel>;
-  cacheMisses: Map<string, CacheMissState>;
   toolStats: Map<string, ToolStats>;
-  /** Successful paid-tool answers, keyed by canonical input, to avoid rebilling. */
-  toolSpend: Map<
-    string,
-    {
-      at: number;
-      output: {
-        content: ReadonlyArray<{ type: "text"; text: string }>;
-        metadata: Record<string, unknown>;
-      };
-    }
-  >;
-  toolSpendPending: Map<string, Promise<any>>;
   subagentSessions: Set<string>;
 };
 
@@ -108,10 +93,7 @@ export function createRuntimeState(): RuntimeState {
     pendingAdTurns: new Map(),
     adImpressions: new Map(),
     trackedModels: new Map(),
-    cacheMisses: new Map(),
     toolStats: new Map(),
-    toolSpend: new Map(),
-    toolSpendPending: new Map(),
     subagentSessions: new Set(),
   };
 }

@@ -1,5 +1,5 @@
 /** Turns the free-pi catalog and models.dev registry into model definitions. */
-import { COMPACT100_CONTEXT_WINDOW, CONTEXT_WINDOW, DEFAULT_REASONING_EFFORT, DEFAULT_THINKING_LEVELS, MAX_OUTPUT_TOKENS, REASONING_EFFORTS, } from "../constants.js";
+import { CONTEXT_WINDOW, DEFAULT_REASONING_EFFORT, DEFAULT_THINKING_LEVELS, MAX_OUTPUT_TOKENS, REASONING_EFFORTS, } from "../constants.js";
 import { positiveNumber } from "../utils/numbers.js";
 import { cleanText } from "../utils/text.js";
 export function usableModels(catalog) {
@@ -217,15 +217,15 @@ export function buildModels(models, candidates = [], options = {}) {
         // explicit answer, otherwise keep reasoning on like the CLI does.
         const reasoning = model.reasoning ?? true;
         const reasoningOptions = model.reasoning_options ?? capability?.reasoning_options;
-        // free-pi enforces a 200k input window and 32k output cap on every model,
-        // regardless of what models.dev reports for the upstream provider. The
-        // provider CLI registers exactly these limits, so clamp to them here too:
-        // an advertised 1M window would let OpenCode grow a session past the
-        // server's real ceiling and fail with `context_too_long` instead of
-        // compacting.
-        const contextCeiling = options.compact100
-            ? COMPACT100_CONTEXT_WINDOW
-            : CONTEXT_WINDOW;
+        // free-pi enforces a context window on every model regardless of what
+        // models.dev reports for the upstream provider. The provider CLI starts at
+        // 200k, but the gateway does not publish its ceiling: `verifyGatewayWindow`
+        // measures it and the result is used here from the next start. Real steps
+        // also prove the gateway accepted at least their prompt size. A published
+        // catalog field still wins, but only inside that measured ceiling, so an
+        // advertised 1M window can never push a session past what the gateway takes.
+        const observed = options.live?.models[model.id]?.maxPromptTokens ?? 0;
+        const contextCeiling = Math.min(1_000_000, Math.max(options.live?.window?.tokens ?? CONTEXT_WINDOW, observed));
         const limitContext = Math.min(positiveNumber(model.context_window, model.contextWindow, model.limit?.context, capability?.limit?.context) ?? contextCeiling, contextCeiling);
         const limitOutput = Math.min(positiveNumber(model.max_tokens, model.maxTokens, model.max_output_tokens, model.limit?.output, capability?.limit?.output) ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS);
         const defaultEffort = reasoning

@@ -8,12 +8,10 @@ import { resolveToken } from "../auth/token.js";
 import {
   AD_CONTEXT_HEADER,
   AD_CONTEXT_OPT_OUT,
-  COST_EXPERIMENT_HEADER,
   CONCURRENT_RETRY_BASE_MS,
   CONCURRENT_RETRY_MAX,
   CONCURRENT_RETRY_MAX_DELAY_MS,
   DEFENSE_PROVIDER_ID,
-  EFFICIENCY_RULE,
   FREE_PI_COMPACTION_GUIDANCE,
   FREE_PI_COMPACTION_MARKER,
   FREE_PI_GUIDANCE,
@@ -163,18 +161,6 @@ async function applyGeneration(
     appendSystemGuidance(event, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER);
   }
 
-  if (deps.state.costExperimentArm === "efficiency") {
-    const system = Array.isArray(event.system) ? event.system : [];
-    if (
-      !system.some(
-        (part: any) => part?.type === "text" && part.text === EFFICIENCY_RULE,
-      )
-    ) {
-      system.push({ type: "text", text: EFFICIENCY_RULE });
-      event.system = system;
-    }
-  }
-
   const agent = event.agent;
   const turn = await resolveAdTurn(deps, {
     sessionID: event.sessionID,
@@ -221,9 +207,6 @@ async function applyModelRequest(deps: Deps, event: any): Promise<void> {
   event.headers["x-client-version"] = deps.state.latestClientVersion;
   if (deps.state.subagentSessions.has(event.sessionID)) {
     event.headers[SUBAGENT_HEADER] = "1";
-  }
-  if (deps.state.costExperimentArm) {
-    event.headers[COST_EXPERIMENT_HEADER] = deps.state.costExperimentArm;
   }
 
   // Title requests are suppressed by the title hook, so an ad for them would be

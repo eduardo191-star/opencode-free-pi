@@ -1,9 +1,7 @@
 /** Fetches the models.dev capability registry. */
-import { REGISTRY_ATTEMPTS, REGISTRY_DISK_TTL_MS, REGISTRY_RETRY_MS, REGISTRY_TIMEOUT_MS, REGISTRY_TTL_MS, } from "../constants.js";
+import { REGISTRY_ATTEMPTS, REGISTRY_RETRY_MS, REGISTRY_TIMEOUT_MS, REGISTRY_TTL_MS, } from "../constants.js";
 import { sleep } from "../utils/async.js";
-import { readCache, writeCache } from "../utils/cache.js";
 import { modelsRegistryUrl } from "../utils/urls.js";
-const CACHE_FILE = "models-dev.json";
 function isRegistry(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -54,7 +52,6 @@ export function refreshModelsRegistry(deps) {
             }
             state.cachedRegistry = registry;
             state.cachedRegistryAt = Date.now();
-            void writeCache(CACHE_FILE, registry);
             return registry;
         }
         catch (error) {
@@ -79,18 +76,11 @@ export async function fetchModelsRegistry(deps) {
         return state.cachedRegistry;
     }
     if (!state.cachedRegistry) {
-        const disk = await readCache(CACHE_FILE, REGISTRY_DISK_TTL_MS);
-        if (isRegistry(disk)) {
-            state.cachedRegistry = disk;
-            state.cachedRegistryAt = Date.now();
-            // Serve the cached copy immediately and refresh it in the background.
-            void refreshModelsRegistry(deps);
-            return disk;
+        if (state.registryAttemptAt &&
+            Date.now() - state.registryAttemptAt < REGISTRY_RETRY_MS) {
+            return state.cachedRegistry;
         }
-    }
-    if (state.registryAttemptAt &&
-        Date.now() - state.registryAttemptAt < REGISTRY_RETRY_MS) {
-        return state.cachedRegistry;
+        return refreshModelsRegistry(deps);
     }
     return refreshModelsRegistry(deps);
 }

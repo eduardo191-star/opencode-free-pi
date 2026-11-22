@@ -7,6 +7,7 @@ import { closeFreePiSession } from "./api/session.js";
 import { readCredentialsToken } from "./auth/credentials.js";
 import { tokenFromCredential } from "./auth/credential.js";
 import { fetchCatalog } from "./catalog/catalog.js";
+import { loadLiveLimits, shouldVerifyWindow, verifyGatewayWindow, } from "./catalog/live.js";
 import { accountAccess, buildModels, filterAccessibleModels, isReasoningEffort, modelRegistryCandidates, partitionModels, } from "./catalog/models.js";
 import { fetchModelsRegistry } from "./catalog/registry.js";
 import { applyProvider } from "./catalog/v2.js";
@@ -103,9 +104,10 @@ async function setup(ctx) {
     const main = filterAccessibleModels(catalogMain, access);
     const defense = filterAccessibleModels(catalogDefense, access);
     const candidates = modelRegistryCandidates(registry);
+    const live = await loadLiveLimits();
     const configuredEffort = ctx.options?.reasoningEffort;
     const buildOptions = {
-        compact100: state.costExperimentArm === "compact100",
+        live,
         ...(configuredEffort === false
             ? { reasoningEffort: false }
             : isReasoningEffort(configuredEffort)
@@ -130,6 +132,17 @@ async function setup(ctx) {
             applyProvider(editor, DEFENSE_PROVIDER_ID, "Free Pi Defense", defenseModels, state.providerToken);
         }
     });
+    // The gateway does not publish its context ceiling. Verify the compiled
+    // window against it once a week with a free model, in the background, and
+    // persist the result for the next catalog build.
+    if (ctx.options?.liveLimits !== false && shouldVerifyWindow(live)) {
+        const probe = main.find((model) => model.free === true)?.id ??
+            catalog?.default_model ??
+            Object.keys(mainModels)[0];
+        if (probe) {
+            void verifyGatewayWindow(deps, { model: probe }).catch(() => undefined);
+        }
+    }
     // V1 selected the catalog default when the user had no model configured.
     await ctx.model.transform((editor) => {
         if (editor.default.get())
@@ -162,7 +175,6 @@ async function setup(ctx) {
         defaultModel: catalog?.default_model,
         clientVersion: state.latestClientVersion,
         capabilities: candidates.length,
-        costArm: state.costExperimentArm,
         models: main.map((model) => model.id),
     });
     return async () => {

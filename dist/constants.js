@@ -7,8 +7,15 @@ export const DEFENSE_PROVIDER_NAME = "Free Pi Defense";
 export const DEFAULT_BASE_URL = "https://api.freepi.ai";
 export const DEFAULT_CLIENT_VERSION = "0.6.25";
 export const CONSENT_VERSION = "4";
+/**
+ * The provider CLI's window. The gateway enforces its own ceiling but does not
+ * publish it, so this is the starting point; `verifyGatewayWindow` replaces it
+ * with what the server actually accepts.
+ */
 export const CONTEXT_WINDOW = 200_000;
 export const MAX_OUTPUT_TOKENS = 32_768;
+/** How long a measured gateway window is trusted before checking again. */
+export const VERIFY_LIMITS_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 export const AD_CONTEXT_HEADER = "x-ad-context";
 /**
  * The CLI sends `none` when the ad context is unavailable or private instead of
@@ -16,8 +23,6 @@ export const AD_CONTEXT_HEADER = "x-ad-context";
  */
 export const AD_CONTEXT_OPT_OUT = "none";
 export const SUBAGENT_HEADER = "x-freepi-subagent";
-export const COST_EXPERIMENT_HEADER = "x-freepi-cost-exp";
-export const EFFICIENCY_RULE = "- When several independent reads or searches are needed, issue them in the same turn.";
 /**
  * The provider CLI starts with thinking off, but leaving `reasoning_effort`
  * unset makes the gateway answer in a hurry: the free models spend only a few
@@ -81,23 +86,12 @@ export const RETRY_MAX_DELAY_MS = 60_000;
 export const CONCURRENT_RETRY_MAX = 6;
 export const CONCURRENT_RETRY_BASE_MS = 1_000;
 export const CONCURRENT_RETRY_MAX_DELAY_MS = 15_000;
-/** pi assumes a 5 minute prompt-cache TTL when explaining a miss. */
-export const CACHE_TTL_MS = 5 * 60_000;
-export const CACHE_MISS_NOISE_FLOOR_TOKENS = 1_024;
-export const CACHE_MISS_NOTICE_TOKENS = 20_000;
 /** Tool outcome headers emitted by the free-pi provider CLI. */
 export const TOOL_META_HEADER = "x-freepi-tool-meta";
 export const TOOL_ERRORS_HEADER = "x-freepi-tool-errors";
 export const COMPACTED_HEADER = "x-freepi-compacted";
 export const TOOL_META_BUDGET = 1_500;
 export const TOOL_ID_LIMIT = 50;
-/**
- * The `compact100` cost experiment reserves 100k tokens, so pi compacts when
- * the prompt reaches 100k. OpenCode compacts at `window - max(15%, 16k)`;
- * 117_647 is the smallest window that keeps that trigger at 100k.
- */
-export const COMPACT100_TRIGGER_TOKENS = 100_000;
-export const COMPACT100_CONTEXT_WINDOW = 117_647;
 export const SESSION_TRACK_LIMIT = 200;
 export const AUTH_SKEW_MS = 60_000;
 export const AUTH_TIMEOUT_MS = 15 * 60_000;
@@ -111,10 +105,8 @@ export const AD_TURN_LIMIT = 200;
 export const AD_IMPRESSION_LIMIT = 200;
 export const CREDITS_PER_USD = 40_000 / 3;
 export const CATALOG_TTL_MS = 10 * 60_000;
-export const CATALOG_DISK_TTL_MS = 24 * 60 * 60_000;
 export const CATALOG_TIMEOUT_MS = 8_000;
 export const REGISTRY_TTL_MS = 5 * 60_000;
-export const REGISTRY_DISK_TTL_MS = 7 * 24 * 60 * 60_000;
 export const REGISTRY_RETRY_MS = 60_000;
 export const REGISTRY_TIMEOUT_MS = 3_500;
 export const REGISTRY_ATTEMPTS = 2;

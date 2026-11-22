@@ -6,7 +6,7 @@ import { readCredentialsToken } from "../auth/credentials.js";
 import { tokenFromCredential } from "../auth/credential.js";
 import type { Deps } from "../deps.js";
 import { handleFreePiError } from "../errors/handle.js";
-import { forgetCacheMiss, observeStepUsage } from "./cache.js";
+import { noteStepTokens } from "../catalog/live.js";
 import { forgetToolStats } from "./tools.js";
 import {
   beginExecution,
@@ -113,7 +113,11 @@ async function handleEvent(
         event.data?.tokens,
       );
       // Step tokens are per request; usage.updated is cumulative.
-      observeStepUsage(deps, event.data?.sessionID, event.data?.tokens);
+      noteStepTokens(
+        deps,
+        deps.state.trackedModels.get(event.data?.sessionID)?.modelID ?? "",
+        event.data?.tokens,
+      );
       return;
     }
     case "session.deleted": {
@@ -121,7 +125,6 @@ async function handleEvent(
       if (typeof sessionID !== "string") return;
       await finalizeFreePiSession(deps, sessionID);
       forgetFreePiSession(deps, sessionID);
-      forgetCacheMiss(deps, sessionID);
       forgetToolStats(deps, sessionID);
       deps.state.subagentSessions.delete(sessionID);
       return;

@@ -15,7 +15,6 @@ import {
   isGatedSession,
   mappedText,
 } from "./api.js";
-import { spendOnce } from "./spend-cache.js";
 
 const ERRORS: Record<string, string> = {
   daily_cap:
@@ -115,30 +114,28 @@ async function executeWebSearch(
   const num =
     typeof input?.num_results === "number" ? input.num_results : undefined;
 
-  return spendOnce(deps, `web:${query}\u0000${num ?? ""}`, async () => {
-    const result = await freePiRequest(deps, {
-      path: "/tools/web-search",
-      method: "POST",
-      body: { query, ...(num !== undefined ? { num_results: num } : {}) },
-      timeoutMs: 30_000,
-      signal: context.signal,
-      label: "The web search",
-    });
-    if (!result.ok) return fail(mappedText(ERRORS, result));
+  const result = await freePiRequest(deps, {
+    path: "/tools/web-search",
+    method: "POST",
+    body: { query, ...(num !== undefined ? { num_results: num } : {}) },
+    timeoutMs: 30_000,
+    signal: context.signal,
+    label: "The web search",
+  });
+  if (!result.ok) return fail(mappedText(ERRORS, result));
 
-    deps.log.info("web_search answered", {
-      query,
-      results: Array.isArray(result.data?.results)
-        ? result.data.results.length
-        : 0,
-      costUsd: result.data?.cost_usd,
-    });
-    return done(formatWebResults(query, result.data?.results ?? []), {
-      ok: true,
-      ...(typeof result.data?.cost_usd === "number"
-        ? { cost_usd: result.data.cost_usd }
-        : {}),
-    });
+  deps.log.info("web_search answered", {
+    query,
+    results: Array.isArray(result.data?.results)
+      ? result.data.results.length
+      : 0,
+    costUsd: result.data?.cost_usd,
+  });
+  return done(formatWebResults(query, result.data?.results ?? []), {
+    ok: true,
+    ...(typeof result.data?.cost_usd === "number"
+      ? { cost_usd: result.data.cost_usd }
+      : {}),
   });
 }
 
@@ -155,42 +152,35 @@ async function executeDocsLookup(
   if (!library) return fail("docs_lookup needs a library name.");
   if (!query) return fail("docs_lookup needs a specific question.");
 
-  const result = await spendOnce(
-    deps,
-    `docs:${library}\u0000${query}\u0000${libraryId}`,
-    () =>
-      freePiRequest(deps, {
-        path: "/tools/docs",
-        method: "POST",
-        body: {
-          library,
-          query,
-          ...(libraryId ? { library_id: libraryId } : {}),
-        },
-        timeoutMs: 30_000,
-        signal: context.signal,
-        label: "The documentation lookup",
-      }).then((lookup) => {
-        if (!lookup.ok) return fail(mappedText(ERRORS, lookup, library));
-        const data = lookup.data ?? {};
-        deps.log.info("docs_lookup answered", {
-          library,
-          libraryID: data.library_id,
-          costUsd: data.cost_usd,
-        });
-        return done(
-          `${data.title ?? library} (library_id: ${data.library_id ?? "unknown"})\n\n${data.docs ?? ""}`,
-          {
-            ok: true,
-            library_id: data.library_id,
-            ...(typeof data.cost_usd === "number"
-              ? { cost_usd: data.cost_usd }
-              : {}),
-          },
-        );
-      }),
+  const lookup = await freePiRequest(deps, {
+    path: "/tools/docs",
+    method: "POST",
+    body: {
+      library,
+      query,
+      ...(libraryId ? { library_id: libraryId } : {}),
+    },
+    timeoutMs: 30_000,
+    signal: context.signal,
+    label: "The documentation lookup",
+  });
+  if (!lookup.ok) return fail(mappedText(ERRORS, lookup, library));
+  const data = lookup.data ?? {};
+  deps.log.info("docs_lookup answered", {
+    library,
+    libraryID: data.library_id,
+    costUsd: data.cost_usd,
+  });
+  return done(
+    `${data.title ?? library} (library_id: ${data.library_id ?? "unknown"})\n\n${data.docs ?? ""}`,
+    {
+      ok: true,
+      library_id: data.library_id,
+      ...(typeof data.cost_usd === "number"
+        ? { cost_usd: data.cost_usd }
+        : {}),
+    },
   );
-  return result;
 }
 
 export async function registerWebTools(

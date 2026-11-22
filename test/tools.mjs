@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = await mkdtemp(join(tmpdir(), "freepi-tools-"));
-process.env.FREE_PI_CACHE_DIR = dir;
+process.env.FREE_PI_DATA_DIR = dir;
 process.env.FREEPI_CREDENTIALS_PATH = join(dir, "missing-credentials.json");
 process.env.FREEPI_BASE_URL = "https://api.test";
 process.env.OPENCODE_HEADLESS = "1";
@@ -219,20 +219,20 @@ const webRequest = requests.find((r) => r.url.endsWith("/tools/web-search"));
 assert.deepEqual(webRequest.body, { query: "vite 6", num_results: 3 });
 assert.equal(webRequest.headers.authorization, "Bearer test-token");
 
-// Repeating the exact same paid call reuses the answer: no second charge.
+// Every call reaches the server; the plugin never reuses an earlier answer.
 const webCalls = () =>
   requests.filter((r) => r.url.endsWith("/tools/web-search")).length;
 const beforeRepeat = webCalls();
 const repeated = await call("web_search", { query: "vite 6", num_results: 3 });
 assert.equal(repeated.metadata.ok, true);
-assert.equal(repeated.metadata.cached, true);
-assert.equal(repeated.metadata.cost_usd, undefined);
-assert.match(repeated.content[0].text, /no allowance used/);
-assert.equal(webCalls(), beforeRepeat);
+assert.equal(repeated.metadata.cached, undefined);
+assert.equal(repeated.metadata.cost_usd, 0.002);
+assert.equal(webCalls(), beforeRepeat + 1);
 
 // A different query is a new search.
+const afterRepeat = webCalls();
 await call("web_search", { query: "vite 7", num_results: 3 });
-assert.equal(webCalls(), beforeRepeat + 1);
+assert.equal(webCalls(), afterRepeat + 1);
 
 const lookup = await call("docs_lookup", {
   library: "next.js",
@@ -249,9 +249,8 @@ const lookupAgain = await call("docs_lookup", {
   library: "next.js",
   query: "matcher",
 });
-assert.equal(lookupAgain.metadata.cached, true);
-assert.match(lookupAgain.content[0].text, /no allowance used/);
-assert.equal(docsCalls(), beforeDocs);
+assert.equal(lookupAgain.metadata.cached, undefined);
+assert.equal(docsCalls(), beforeDocs + 1);
 
 assert.equal(
   formatWebResults("nothing", []),

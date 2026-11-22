@@ -1,17 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const dir = await mkdtemp(join(tmpdir(), "freepi-registry-"));
-process.env.FREE_PI_CACHE_DIR = dir;
+const dir = join(tmpdir(), `freepi-registry-${process.pid}`);
+process.env.FREE_PI_DATA_DIR = dir;
 process.env.FREEPI_MODELS_URL = "https://models.test";
 
-const { readCache, writeCache } = await import("../dist/utils/cache.js");
 const { createRuntimeState } = await import("../dist/state.js");
 const { fetchModelsRegistry } = await import("../dist/catalog/registry.js");
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function makeDeps(state) {
   const warnings = [];
@@ -38,12 +36,7 @@ const realFetch = globalThis.fetch;
 let calls = 0;
 
 try {
-  // 1. Disk cache round trip.
-  await writeCache("roundtrip.json", { a: 1 });
-  assert.deepEqual(await readCache("roundtrip.json", 10_000), { a: 1 });
-  assert.equal(await readCache("roundtrip.json", -1), undefined);
-
-  // 2. A successful fetch populates memory and disk.
+  // A successful fetch fills the in-memory registry and is reused within its TTL.
   globalThis.fetch = async () => {
     calls += 1;
     return new Response(JSON.stringify(registry), { status: 200 });
@@ -52,28 +45,32 @@ try {
   assert.deepEqual(await fetchModelsRegistry(first.deps), registry);
   assert.equal(calls, 1);
   assert.deepEqual(first.deps.state.cachedRegistry, registry);
-  await sleep(50);
+  assert.deepEqual(await fetchModelsRegistry(first.deps), registry);
+  assert.equal(calls, 1, "a fresh in-memory registry is reused");
 
-  // 3. A fresh instance falls back to the disk cache when the network fails.
+  // Nothing is written to disk, so the next start always asks the server.
+  assert.equal(existsSync(join(dir, "models-dev.json")), false);
+
+  // A failure with no data is reported and retried at most once per window.
   globalThis.fetch = async () => {
     calls += 1;
     throw new Error("network down");
   };
   const second = makeDeps(createRuntimeState());
-  assert.deepEqual(await fetchModelsRegistry(second.deps), registry);
-  await sleep(1_000); // Let the background refresh finish and report once.
+  assert.equal(await fetchModelsRegistry(second.deps), undefined);
   assert.equal(second.warnings.length, 1);
-  assert.match(second.warnings[0].message, /cached model metadata/);
-
-  // 4. With no cache the failure is reported and retried at most once per window.
-  await rm(join(dir, "models-dev.json"), { force: true });
-  const third = makeDeps(createRuntimeState());
-  assert.equal(await fetchModelsRegistry(third.deps), undefined);
-  assert.equal(third.warnings.length, 1);
-  assert.match(third.warnings[0].message, /fall back to defaults/);
+  assert.match(second.warnings[0].message, /fall back to defaults/);
   const attempts = calls;
-  assert.equal(await fetchModelsRegistry(third.deps), undefined);
-  assert.equal(calls, attempts, "negative cache should skip the second request");
+  assert.equal(await fetchModelsRegistry(second.deps), undefined);
+  assert.equal(calls, attempts, "the retry window should skip the second request");
+
+  // A failure after a good fetch keeps serving the in-memory registry.
+  const third = makeDeps(createRuntimeState());
+  third.deps.state.cachedRegistry = registry;
+  third.deps.state.cachedRegistryAt = 0;
+  assert.deepEqual(await fetchModelsRegistry(third.deps), registry);
+  assert.equal(third.warnings.length, 1);
+  assert.match(third.warnings[0].message, /cached model metadata/);
 
   console.log("ok");
 } finally {

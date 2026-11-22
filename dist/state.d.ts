@@ -1,5 +1,5 @@
 /** Per-plugin-instance mutable state. */
-import type { AdTurn, CacheMissState, Catalog, FreePiError, ModelRegistry, QuotaSnapshot, RequestUsage, SessionResetOutcome, TokenCheckState, ToolStats, TrackedModel } from "./types.js";
+import type { AdTurn, Catalog, FreePiError, ModelRegistry, QuotaSnapshot, RequestUsage, SessionResetOutcome, TokenCheckState, ToolStats, TrackedModel } from "./types.js";
 export type RuntimeState = {
     latestClientVersion: string;
     providerToken?: string;
@@ -10,7 +10,6 @@ export type RuntimeState = {
     cachedRegistryAt: number;
     registryAttemptAt: number;
     registryPromise?: Promise<ModelRegistry | undefined>;
-    costExperimentArm?: string;
     lastCatalogNotice?: string;
     lastQuotaNotice?: string;
     catalogModels: Catalog;
@@ -50,20 +49,7 @@ export type RuntimeState = {
     pendingAdTurns: Map<string, AdTurn>;
     adImpressions: Map<string, Promise<void>>;
     trackedModels: Map<string, TrackedModel>;
-    cacheMisses: Map<string, CacheMissState>;
     toolStats: Map<string, ToolStats>;
-    /** Successful paid-tool answers, keyed by canonical input, to avoid rebilling. */
-    toolSpend: Map<string, {
-        at: number;
-        output: {
-            content: ReadonlyArray<{
-                type: "text";
-                text: string;
-            }>;
-            metadata: Record<string, unknown>;
-        };
-    }>;
-    toolSpendPending: Map<string, Promise<any>>;
     subagentSessions: Set<string>;
 };
 export declare function createRuntimeState(): RuntimeState;

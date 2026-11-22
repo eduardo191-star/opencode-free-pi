@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 
 const dir = await mkdtemp(join(tmpdir(), "freepi-vision-"));
-process.env.FREE_PI_CACHE_DIR = dir;
+process.env.FREE_PI_DATA_DIR = dir;
 process.env.FREEPI_CREDENTIALS_PATH = join(dir, "missing-credentials.json");
 process.env.FREEPI_BASE_URL = "https://api.test";
 delete process.env.FREEPI_JWT;

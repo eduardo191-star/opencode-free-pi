@@ -92,9 +92,6 @@ export type Catalog = {
     default_model?: string;
     notice?: string;
     models?: CatalogModel[];
-    cost_experiment?: {
-        arm?: string;
-    };
 };
 /** Intermediate, SDK-agnostic model shape used while the catalog is built. */
 export type ModelDefinition = {
@@ -138,6 +135,11 @@ export type FreePiOptions = {
      * models plan before answering. Set `false` to keep the gateway default.
      */
     reasoningEffort?: string | false;
+    /**
+     * Verify the gateway's real context window once a week and reuse the measured
+     * value. Defaults to true; set `false` to stay on the compiled window.
+     */
+    liveLimits?: boolean;
 };
 export type MeResponse = {
     handle?: string;
@@ -246,12 +248,6 @@ export type AdTurn = {
 export type TrackedModel = {
     providerID: string;
     modelID: string;
-};
-export type CacheMissState = {
-    promptTokens: number;
-    at: number;
-    modelKey: string;
-    reportedCache: boolean;
 };
 export type ToolStats = {
     meta: string[];

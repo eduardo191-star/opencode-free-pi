@@ -1,5 +1,6 @@
 /** Turns the free-pi catalog and models.dev registry into model definitions. */
 import type { Catalog, CatalogModel, MeResponse, ModelDefinition, ModelRegistry, ModelsDevModel, ReasoningOption, RegistryCandidate } from "../types.js";
+import type { LiveLimits } from "./live.js";
 export type VariantMap = Record<string, Record<string, unknown>>;
 export type ModelMap = Record<string, ModelDefinition>;
 export declare function usableModels(catalog: Catalog | undefined): CatalogModel[];
@@ -21,14 +22,18 @@ export declare function isReasoningEffort(value: unknown): value is string;
  */
 export declare function preferredReasoningEffort(options: ReasoningOption[] | undefined, configured?: string | false): string | undefined;
 export type BuildModelsOptions = {
-    /** pi's `compact100` arm compacts at 100k instead of the default ceiling. */
-    compact100?: boolean;
     /**
      * Effort sent when the user has not picked a variant. `false` keeps the
      * gateway default. Defaults to `medium` because an unset effort makes the
      * free models answer before they reason.
      */
     reasoningEffort?: string | false;
+    /**
+     * Limits and capabilities observed from the live gateway. The verified
+     * window replaces the compiled one, and per-model observations prove what the
+     * server really accepted for this account.
+     */
+    live?: LiveLimits;
 };
 /**
  * What the signed-in account can actually use, derived from `GET /me`.

@@ -1,9 +1,7 @@
 /** Fetches the live free-pi model catalog. */
 import { resolveToken } from "../auth/token.js";
-import { CATALOG_DISK_TTL_MS, CATALOG_TIMEOUT_MS, CATALOG_TTL_MS, COST_EXPERIMENT_HEADER, } from "../constants.js";
-import { readCache, writeCache } from "../utils/cache.js";
+import { CATALOG_TIMEOUT_MS, CATALOG_TTL_MS, } from "../constants.js";
 import { resolveBaseUrl } from "../utils/urls.js";
-const CACHE_FILE = "catalog.json";
 function isCatalog(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -18,11 +16,6 @@ function applyCatalog(deps, catalog) {
     if (typeof catalog.latest === "string" && catalog.latest.length > 0) {
         state.latestClientVersion = catalog.latest;
     }
-    const arm = catalog.cost_experiment?.arm;
-    state.costExperimentArm =
-        typeof arm === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(arm)
-            ? arm
-            : undefined;
     if (typeof catalog.notice === "string" &&
         catalog.notice &&
         catalog.notice !== state.lastCatalogNotice) {
@@ -40,12 +33,9 @@ export function refreshCatalog(deps) {
         return state.catalogPromise;
     const pending = (async () => {
         try {
-            // The CLI asks for the catalog with its JWT and the cost-experiment
-            // header; without both the server may omit `cost_experiment`.
             const token = await resolveToken(deps).catch(() => undefined);
             const headers = {
                 accept: "application/json",
-                [COST_EXPERIMENT_HEADER]: "1",
             };
             if (token)
                 headers.authorization = `Bearer ${token}`;
@@ -60,7 +50,6 @@ export function refreshCatalog(deps) {
                 throw new Error("free-pi returned an unexpected catalog payload");
             }
             applyCatalog(deps, catalog);
-            void writeCache(CACHE_FILE, catalog);
             return catalog;
         }
         catch (error) {
@@ -82,15 +71,6 @@ export async function fetchCatalog(deps) {
     const state = deps.state;
     if (state.cachedCatalog && Date.now() - state.cachedCatalogAt < CATALOG_TTL_MS) {
         return state.cachedCatalog;
-    }
-    if (!state.cachedCatalog) {
-        const disk = await readCache(CACHE_FILE, CATALOG_DISK_TTL_MS);
-        if (isCatalog(disk)) {
-            applyCatalog(deps, disk);
-            // Serve the cached copy immediately and refresh it in the background.
-            void refreshCatalog(deps);
-            return disk;
-        }
     }
     return refreshCatalog(deps);
 }

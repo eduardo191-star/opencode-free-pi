@@ -105,10 +105,17 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   plugin recupera el nivel del servidor. No se anuncian `thinking_budget` ni
   `thinking`, porque la ruta `openai-compatible` de OpenCode los descarta.
 - **Capacidades iguales al CLI**: todos los modelos se registran con
-  razonamiento activo, entrada solo de texto, coste cero y la misma ventana de
-  200k con 32k de salida que usa `pi`. No se fuerza temperatura ni `top_p`: la
-  petición real no los incluye, así que el gateway aplica su propio valor. El
-  prompt se envía con rol `system`, no `developer`.
+  razonamiento activo, entrada solo de texto, coste cero y 32k de salida. La
+  ventana arranca en los 200k del CLI, pero el plugin la comprueba contra el
+  gateway cada 7 días con un modelo gratuito y usa la medida real. No se fuerza
+  temperatura ni `top_p`: la petición real no los incluye, así que el gateway
+  aplica su propio valor. El prompt se envía con rol `system`, no `developer`.
+- **Límites medidos, no inventados**: `/client-version` solo devuelve id,
+  nombre, `free`, `section`, `note`, `stats_id` y `usage_x`; no hay endpoint de
+  capacidades ni de ventana. El plugin no se queda en constantes: mide la
+  ventana real del gateway, guarda el resultado en `live-limits.json` y anota en
+  cada paso los tokens de prompt y de razonamiento que el servidor confirma.
+  `liveLimits: false` desactiva la comprobación y deja la ventana compilada.
 - **Reglas de trabajo en el prompt**: cada petición principal de free-pi añade
   un bloque corto al system prompt con lo que los modelos gratuitos suelen
   omitir: leer antes de editar, ejecutar las comprobaciones de verdad, no
@@ -128,9 +135,6 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   free-pi. El CLI nunca los hace y cada ping gastaría créditos y anuncios.
 - **Timeouts del CLI**: 5 minutos para las cabeceras y para cada trozo de la
   respuesta, los mismos valores que `httpIdleTimeoutMs` de pi.
-- **Avisos de cache miss opcionales**: con `FREE_PI_CACHE_MISS_NOTICES=1` el
-  plugin registra en el log los turnos que vuelven a facturar más de 20k
-  tokens de prompt, usando la misma fórmula que `cache-stats` de pi.
 - Anuncios e impresiones asociados al turno correcto.
 - Cada agente y subagente usa su propio `x-session-id`, `x-turn-id` y contexto
   de anuncios; nunca reutiliza los del agente principal.
@@ -167,7 +171,7 @@ herramienta `look_at_image` con una ruta y una pregunta concreta. El plugin:
 - Envía la imagen a `/tools/vision` y devuelve la respuesta del modelo de
   visión como texto.
 - Serializa las preguntas entre sesiones y procesos de OpenCode mediante un
-  bloqueo en la caché del plugin. Si el servidor responde `rate_limited` porque
+  bloqueo en el directorio de datos del plugin. Si el servidor responde `rate_limited` porque
   otra sesión o el CLI está consultando una imagen, reintenta automáticamente
   respetando `Retry-After` en vez de hacer fallar el turno.
 
@@ -201,15 +205,8 @@ no pueda escribir fuera de `images/`.
 códigos `daily_cap`, `rolling_cap`, `rate_limited`, `not_found`,
 `not_configured`, `upstream_error` y los de invitado se traducen al mismo texto
 que el CLI, para que el agente sepa cuándo no debe reintentar. Igual que
-`look_at_image`, cada llamada consume allowance.
-
-Las tres herramientas que gastan cuota (`web_search`, `docs_lookup` y
-`look_at_image`) comparten una caché de respuestas de 30 minutos: si el modelo,
-un subagente o un reintento piden exactamente lo mismo, se reutiliza la primera
-respuesta y no se vuelve a cobrar. Las llamadas idénticas en paralelo comparten
-una sola petición, y los errores nunca se cachean para que el siguiente intento
-vea el estado real del servidor. La respuesta cacheada lo indica y no incluye
-`cost_usd`.
+`look_at_image`, cada llamada consume allowance y se ejecuta tal cual: el plugin
+no reutiliza respuestas ni oculta llamadas repetidas.
 
 `free_pi_usage` consulta `/me/stats` y resume el tier, los créditos restantes
 con su hora de recarga en ET, los créditos premium o de referidos y los tokens
@@ -271,15 +268,13 @@ permisos también siguen siendo los de OpenCode; free-pi no los reemplaza.
 
 El plugin replica las cabeceras del plugin V1 de free-pi:
 
-- **Modelo**: `authorization`, `x-session-id`, `x-client-version`,
-  `x-turn-id` y `x-freepi-cost-exp` (cuando el catálogo asigna un experimento).
-  Las sesiones hijas añaden `x-freepi-subagent: 1`.
+- **Modelo**: `authorization`, `x-session-id`, `x-client-version` y
+  `x-turn-id`. Las sesiones hijas añaden `x-freepi-subagent: 1`.
 - **Resultados de herramientas**: `x-freepi-tool-meta` (duración, código de
   salida y truncado de las últimas llamadas), `x-freepi-tool-errors` (IDs de
   herramientas fallidas) y `x-freepi-compacted` (mensajes plegados por la
   última compactación, en la petición siguiente).
-- **Catálogo** (`/client-version`): `authorization` y `x-freepi-cost-exp: 1`,
-  igual que el CLI, para que el servidor pueda asignar el experimento de coste.
+- **Catálogo** (`/client-version`): `authorization`.
 - **Anuncios** (`/ads/next`): `authorization`, `x-session-id`,
   `x-client-version`, `x-turn-id`, `x-ad-trigger`, `x-client-os`,
   `x-client-arch`, `x-client-timezone`, `x-client-locale` y `x-ad-context`.
@@ -318,10 +313,7 @@ sin fallar ni mostrar reintentos. Además libera el id anterior, y si el replay 
 puede completarse el hook de reintento rota el id para los siguientes pasos. Un
 turno que se aborta o falla a mitad de stream marca su `x-session-id` como sucio:
 la siguiente petición arranca directamente con un id nuevo y libera el anterior,
-de modo que la sesión continúa sin interrupciones y sin pasar por un reintento. Si
-el catálogo asigna el experimento `compact100`, el plugin baja la ventana a 117
-647 tokens para que OpenCode compacte al llegar a 100k, que es el mismo umbral
-que consigue `reserveTokens: 100000` en el CLI.
+de modo que la sesión continúa sin interrupciones y sin pasar por un reintento.
 
 ## Rutas por plataforma
 
@@ -344,24 +336,25 @@ Si `XDG_CONFIG_HOME` o `OPENCODE_CONFIG_DIR` están definidos, se respetan.
 | `FREEPI_DEVICE_LOGIN=1`   | Forzar inicio de sesión por dispositivo.             |
 | `FREEPI_CONFIGURE=1`      | Registrar el paquete en `opencode.json` al instalar. |
 | `OPENCODE_CONFIG_DIR`     | Directorio de configuración de OpenCode.             |
-| `FREE_PI_CACHE_DIR`       | Directorio de caché del plugin.                      |
+| `FREE_PI_DATA_DIR`        | Directorio de datos del plugin.                      |
 | `FREE_PI_LOG_FILE`        | Ruta alternativa del archivo de log del plugin.      |
-| `FREE_PI_CACHE_MISS_NOTICES=1` | Registrar en el log los cache miss de más de 20k tokens. |
 
 No hay variables obligatorias.
 
-## Caché y logs
+## Datos y logs
 
-El plugin guarda el catálogo de free-pi y el registro de models.dev en:
+El catálogo y el registro de models.dev se piden en vivo en cada arranque: no
+se guardan copias en disco ni se muestran datos de una ejecución anterior. El
+plugin solo conserva en:
 
 ```text
-~/.cache/opencode/free-pi/catalog.json
-~/.cache/opencode/free-pi/models-dev.json
+~/.cache/opencode/free-pi/live-limits.json
 ```
 
-En Windows es `%USERPROFILE%\.cache\opencode\free-pi\`. El catálogo se reutiliza
-hasta 24 h y el registro hasta 7 días si la red falla; cuando la petición
-funciona, las copias se refrescan solas.
+la ventana de contexto que midió contra el gateway y lo que cada paso real
+demostró sobre el modelo. Esa medición se vuelve a comprobar cada 7 días.
+
+En Windows es `%USERPROFILE%\.cache\opencode\free-pi\`.
 
 Los mensajes del plugin se escriben en la consola con el prefijo `[free-pi]` y
 también en:
@@ -431,16 +424,17 @@ src/
   auth/                 OAuth, JWT, credenciales y conexión
   api/                  cuota y reset de sesión
   ads/                  contexto, turnos e impresiones
-  catalog/              catálogo en vivo y registro models.dev
+  catalog/              catálogo en vivo, models.dev y límites medidos
   errors/               parseo, mensajes y reescritura de límites
   integration/          integración y métodos de inicio de sesión
   session/              hooks, eventos, seguimiento y uso
-  utils/                helpers pequeños (incluye cache.ts)
+  utils/                helpers pequeños (directorio de datos y URLs)
 dist/                   build ESM y tipos
 scripts/postinstall.mjs registro en opencode.json
 test/smoke.mjs          prueba de humo del build
-test/registry.mjs       caché y tolerancia a fallos de models.dev
-test/models.mjs         capacidades, variantes, límites reales y costos
+test/registry.mjs       models.dev en vivo y tolerancia a fallos
+test/models.mjs         capacidades, variantes y límites
+test/live.mjs           ventana medida y observaciones del gateway
 test/hooks.mjs          hooks de sesión, anuncios, cuota y compactación
 ```
 

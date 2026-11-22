@@ -1,0 +1,87 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const dir = await mkdtemp(join(tmpdir(), "free-pi-live-"));
+process.env.FREE_PI_DATA_DIR = dir;
+await mkdir(dir, { recursive: true });
+await writeFile(
+  join(dir, "live-limits.json"),
+  JSON.stringify({
+    version: 1,
+    window: { tokens: 180_000, verifiedAt: Date.now(), model: "probe" },
+    models: {
+      observed: { maxPromptTokens: 42_000, reasoning: true, updatedAt: 1 },
+    },
+  }),
+  "utf8",
+);
+
+const live = await import("../dist/catalog/live.js");
+const { buildModels } = await import("../dist/catalog/models.js");
+const { CONTEXT_WINDOW } = await import("../dist/constants.js");
+
+const limits = await live.loadLiveLimits();
+assert.equal(limits.window.tokens, 180_000);
+assert.equal(limits.models.observed.maxPromptTokens, 42_000);
+assert.equal(limits.models.observed.reasoning, true);
+
+// The verified window replaces the compiled one.
+const measured = buildModels([{ id: "m", free: true }], [], { live: limits })[
+  "m"
+];
+assert.equal(measured.limit.context, 180_000);
+
+// A catalog field can only lower it; the gateway's measured ceiling wins over
+// an optimistic upstream limit.
+const published = buildModels(
+  [{ id: "m", free: true, context_window: 1_000_000 }],
+  [],
+  { live: limits },
+)["m"];
+assert.equal(published.limit.context, 180_000);
+
+const smaller = buildModels(
+  [{ id: "m", free: true, context_window: 100_000 }],
+  [],
+  { live: limits },
+)["m"];
+assert.equal(smaller.limit.context, 100_000);
+
+// Without measurements the compiled window still applies.
+const plain = buildModels([{ id: "m", free: true }], [], {})["m"];
+assert.equal(plain.limit.context, CONTEXT_WINDOW);
+
+// Real traffic updates the in-memory record.
+live.noteStepTokens({}, "observed", {
+  input: 50_000,
+  reasoning: 12,
+  cache: { read: 1_000, write: 500 },
+});
+assert.equal(
+  live.currentLiveLimits().models.observed.maxPromptTokens,
+  51_500,
+);
+assert.equal(live.currentLiveLimits().models.observed.reasoning, true);
+
+// Measurements are written back so the next start can use them.
+await new Promise((resolve) => setTimeout(resolve, 2_300));
+const persisted = JSON.parse(
+  await readFile(join(dir, "live-limits.json"), "utf8"),
+);
+assert.equal(persisted.models.observed.maxPromptTokens, 51_500);
+
+// A fresh verification is trusted for a week; a missing or stale one is not.
+assert.equal(live.shouldVerifyWindow(limits), false);
+assert.equal(live.shouldVerifyWindow(undefined), true);
+assert.equal(
+  live.shouldVerifyWindow({
+    version: 1,
+    models: {},
+    window: { tokens: 1, verifiedAt: 1 },
+  }),
+  true,
+);
+
+console.log("live limits ok");

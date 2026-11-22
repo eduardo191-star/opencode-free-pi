@@ -4,12 +4,12 @@
  * free-pi answers one `/tools/vision` request at a time: a second concurrent
  * question gets `rate_limited`. OpenCode can run several sessions, and users can
  * run several OpenCode processes, so calls are queued in-process and coordinated
- * through a lock directory in the free-pi cache.
+ * through a lock directory in the free-pi data directory.
  */
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { cacheDir } from "../utils/cache.js";
+import { dataDir } from "../utils/data-dir.js";
 const OWNER_FILE = "owner.json";
 const POLL_MS = 350;
 /** A live owner may legitimately hold the lock for a 90 s request. */
@@ -17,7 +17,7 @@ const STALE_MS = 10 * 60_000;
 const MAX_WAIT_MS = 120_000;
 let chain = Promise.resolve();
 function lockDir() {
-    return join(cacheDir(), "vision.lock");
+    return join(dataDir(), "vision.lock");
 }
 function pidAlive(pid) {
     try {
@@ -76,10 +76,10 @@ async function acquire(log) {
     };
     const startedAt = Date.now();
     try {
-        await mkdir(cacheDir(), { recursive: true });
+        await mkdir(dataDir(), { recursive: true });
     }
     catch {
-        // Without a cache directory the file lock is unavailable; the in-process
+        // Without a data directory the file lock is unavailable; the in-process
         // queue still serializes calls, so keep going.
     }
     while (Date.now() - startedAt < MAX_WAIT_MS) {

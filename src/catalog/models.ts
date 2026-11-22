@@ -1,7 +1,6 @@
 /** Turns the free-pi catalog and models.dev registry into model definitions. */
 
 import {
-  COMPACT100_CONTEXT_WINDOW,
   CONTEXT_WINDOW,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_THINKING_LEVELS,
@@ -18,6 +17,7 @@ import type {
   ReasoningOption,
   RegistryCandidate,
 } from "../types.js";
+import type { LiveLimits } from "./live.js";
 import { positiveNumber } from "../utils/numbers.js";
 import { cleanText } from "../utils/text.js";
 
@@ -226,14 +226,18 @@ export function preferredReasoningEffort(
 }
 
 export type BuildModelsOptions = {
-  /** pi's `compact100` arm compacts at 100k instead of the default ceiling. */
-  compact100?: boolean;
   /**
    * Effort sent when the user has not picked a variant. `false` keeps the
    * gateway default. Defaults to `medium` because an unset effort makes the
    * free models answer before they reason.
    */
   reasoningEffort?: string | false;
+  /**
+   * Limits and capabilities observed from the live gateway. The verified
+   * window replaces the compiled one, and per-model observations prove what the
+   * server really accepted for this account.
+   */
+  live?: LiveLimits;
 };
 
 /**
@@ -306,15 +310,18 @@ export function buildModels(
     const reasoning = model.reasoning ?? true;
     const reasoningOptions =
       model.reasoning_options ?? capability?.reasoning_options;
-    // free-pi enforces a 200k input window and 32k output cap on every model,
-    // regardless of what models.dev reports for the upstream provider. The
-    // provider CLI registers exactly these limits, so clamp to them here too:
-    // an advertised 1M window would let OpenCode grow a session past the
-    // server's real ceiling and fail with `context_too_long` instead of
-    // compacting.
-    const contextCeiling = options.compact100
-      ? COMPACT100_CONTEXT_WINDOW
-      : CONTEXT_WINDOW;
+    // free-pi enforces a context window on every model regardless of what
+    // models.dev reports for the upstream provider. The provider CLI starts at
+    // 200k, but the gateway does not publish its ceiling: `verifyGatewayWindow`
+    // measures it and the result is used here from the next start. Real steps
+    // also prove the gateway accepted at least their prompt size. A published
+    // catalog field still wins, but only inside that measured ceiling, so an
+    // advertised 1M window can never push a session past what the gateway takes.
+    const observed = options.live?.models[model.id]?.maxPromptTokens ?? 0;
+    const contextCeiling = Math.min(
+      1_000_000,
+      Math.max(options.live?.window?.tokens ?? CONTEXT_WINDOW, observed),
+    );
     const limitContext = Math.min(
       positiveNumber(
         model.context_window,

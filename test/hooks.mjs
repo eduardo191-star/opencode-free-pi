@@ -4,18 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = await mkdtemp(join(tmpdir(), "freepi-hooks-"));
-process.env.FREE_PI_CACHE_DIR = dir;
+process.env.FREE_PI_DATA_DIR = dir;
 process.env.FREEPI_CREDENTIALS_PATH = join(dir, "missing-credentials.json");
 process.env.FREEPI_BASE_URL = "https://api.test";
 delete process.env.FREEPI_JWT;
 
 const { registerSessionHooks } = await import("../dist/session/hooks.js");
 const { createRuntimeState } = await import("../dist/state.js");
-const { observeStepUsage } = await import("../dist/session/cache.js");
 const { recordUsage } = await import("../dist/session/usage.js");
 const {
   MAX_OUTPUT_TOKENS,
-  EFFICIENCY_RULE,
   FREE_PI_GUIDANCE_MARKER,
   FREE_PI_COMPACTION_MARKER,
 } = await import("../dist/constants.js");
@@ -109,7 +107,6 @@ try {
     );
   }
 
-  deps.state.costExperimentArm = "efficiency";
   deps.state.outputLimits.set("free-pi/hy4-flash", 65536);
   deps.state.latestClientVersion = "9.9.9";
 
@@ -119,7 +116,8 @@ try {
     content: [{ type: "text", text: "hello from the user" }],
   };
 
-  // Primary generation: caps output tokens, adds the efficiency rule, resolves a turn.
+  // Primary generation: caps output tokens, resolves a turn and adds the
+  // free-pi working rules.
   const contextEvent = await invoke("context", "free-pi", {
     sessionID: "ses_parent",
     agent: "build",
@@ -130,10 +128,6 @@ try {
     options: { maxTokens: 1_000_000 },
   });
   assert.equal(contextEvent.options.maxTokens, MAX_OUTPUT_TOKENS);
-  assert.ok(
-    contextEvent.system.some((part) => part.text === EFFICIENCY_RULE),
-    "efficiency rule is appended",
-  );
   assert.ok(
     contextEvent.system.some(
       (part) =>
@@ -163,7 +157,7 @@ try {
     "guidance is not duplicated",
   );
 
-  // Outgoing model request: auth, session, client version, experiment and turn headers.
+  // Outgoing model request: auth, session, client version and turn headers.
   const primary = await invoke("model.request", "free-pi", {
     sessionID: "ses_parent",
     agent: "build",
@@ -174,7 +168,7 @@ try {
   assert.equal(primary.headers.authorization, "Bearer test-token");
   assert.match(primary.headers["x-session-id"], /^ses_parent-r/);
   assert.equal(primary.headers["x-client-version"], "9.9.9");
-  assert.equal(primary.headers["x-freepi-cost-exp"], "efficiency");
+  assert.equal(primary.headers["x-freepi-cost-exp"], undefined);
   assert.match(primary.headers["x-turn-id"], /^[0-9a-f-]{36}$/);
   const primaryAdContext = JSON.parse(
     Buffer.from(primary.headers["x-ad-context"], "base64url").toString("utf8"),
@@ -734,30 +728,6 @@ try {
   );
   globalThis.fetch = replayMock;
   await Promise.all([...deps.state.sessionClosePromises.values()]);
-
-  // Cache misses are opt-in and need a real re-billed prompt.
-  process.env.FREE_PI_CACHE_MISS_NOTICES = "1";
-  deps.state.trackedModels.set("ses_cache", {
-    providerID: "free-pi",
-    modelID: "hy4-flash",
-  });
-  observeStepUsage(deps, "ses_cache", {
-    input: 30_000,
-    output: 10,
-    reasoning: 0,
-    cache: { read: 0, write: 0 },
-  });
-  observeStepUsage(deps, "ses_cache", {
-    input: 40_000,
-    output: 10,
-    reasoning: 0,
-    cache: { read: 1_000, write: 0 },
-  });
-  assert.ok(
-    infos.some((entry) => /cache miss: 29000 tokens/.test(entry.message)),
-    JSON.stringify(infos),
-  );
-  delete process.env.FREE_PI_CACHE_MISS_NOTICES;
 
   // Long-lived limits are rewritten to a friendly 400.
   const limited = new Response(
