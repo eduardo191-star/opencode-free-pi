@@ -22,7 +22,7 @@ try {
   const scout = await readFile(scoutPath, "utf8");
   assert.match(scout, /^---\n/);
   assert.match(scout, /^<!-- managed by @eduardo191labs\/opencode-free-pi/m);
-  assert.match(scout, /^mode: subagent$/m);
+  assert.match(scout, /^mode: all$/m);
   assert.match(scout, /Read-only recon/);
   assert.match(scout, /## Files Retrieved/);
   assert.match(scout, /action: edit/);

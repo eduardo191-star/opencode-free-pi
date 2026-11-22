@@ -199,7 +199,7 @@ añadir ruido al contexto.
 
 ## Agentes y subagentes
 
-El CLI incluye cuatro personalidades de subagente. El plugin las instala como
+El CLI incluye cuatro personalidades de agente. El plugin las instala como
 agentes Markdown nativos de OpenCode en el directorio global de configuración:
 
 ```text
@@ -217,11 +217,12 @@ agentes Markdown nativos de OpenCode en el directorio global de configuración:
 | `free-pi/worker`  | Ejecuta una tarea completa en su propia ventana de contexto.      |
 | `free-pi/reviewer`| Revisión de solo lectura con archivo y línea.                     |
 
-Se lanzan con la herramienta `subagent` nativa de OpenCode, aparecen en el
-selector de agentes y heredan el modelo free-pi de la sesión padre. Los
-subagentes corren en segundo plano, comparten el allowance diario y envían su
-informe al agente principal. Así se conservan las sesiones hijas, los permisos,
-la profundidad de subagentes y el resto del comportamiento nativo.
+Usan `mode: all`, así que aparecen en el selector `/agents` de la TUI como
+agente principal **y** se pueden lanzar con la herramienta `subagent` nativa.
+Heredan el modelo free-pi de la sesión padre. Como subagentes corren en segundo
+plano, comparten el allowance diario y envían su informe al agente principal.
+Así se conservan las sesiones hijas, los permisos, la profundidad de subagentes
+y el resto del comportamiento nativo.
 
 El plugin solo reescribe estos archivos si conservan su marca de gestión; si el
 usuario edita o reemplaza uno, se respeta tal cual.

@@ -1,12 +1,17 @@
 /**
  * Native OpenCode agents for free-pi.
  *
- * The provider CLI ships four subagent personalities (scout, planner, worker,
+ * The provider CLI ships four agent personalities (scout, planner, worker,
  * reviewer) with their own prompts and tool access. OpenCode's V2 plugin API
  * cannot add agents through `AgentEditor`, but it loads Markdown agents from the
  * global config directory. Installing those files is the supported way to map
  * the CLI agents onto OpenCode's native `subagent` tool, so child sessions,
  * background reports, permissions and the agent picker keep working normally.
+ *
+ * They use `mode: all`: OpenCode only lists non-subagent agents in the `/agents`
+ * picker, and only agents whose mode is not `primary` can run through the
+ * `subagent` tool. `all` satisfies both, so the same personalities are
+ * selectable as the main agent and spawnable as children.
  *
  * Files live under `agents/free-pi/`, which makes their IDs `free-pi/scout`,
  * `free-pi/planner`, `free-pi/worker` and `free-pi/reviewer`.

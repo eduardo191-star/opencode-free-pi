@@ -1,12 +1,17 @@
 /**
  * Native OpenCode agents for free-pi.
  *
- * The provider CLI ships four subagent personalities (scout, planner, worker,
+ * The provider CLI ships four agent personalities (scout, planner, worker,
  * reviewer) with their own prompts and tool access. OpenCode's V2 plugin API
  * cannot add agents through `AgentEditor`, but it loads Markdown agents from the
  * global config directory. Installing those files is the supported way to map
  * the CLI agents onto OpenCode's native `subagent` tool, so child sessions,
  * background reports, permissions and the agent picker keep working normally.
+ *
+ * They use `mode: all`: OpenCode only lists non-subagent agents in the `/agents`
+ * picker, and only agents whose mode is not `primary` can run through the
+ * `subagent` tool. `all` satisfies both, so the same personalities are
+ * selectable as the main agent and spawnable as children.
  *
  * Files live under `agents/free-pi/`, which makes their IDs `free-pi/scout`,
  * `free-pi/planner`, `free-pi/worker` and `free-pi/reviewer`.
@@ -85,7 +90,7 @@ over running an external CLI.
 
 const SCOUT = `---
 description: Read-only recon. Locates code, traces how pieces connect, and returns structured findings the lead can use without re-reading the files.
-mode: subagent
+mode: all
 color: "#4cc9f0"
 permissions:
   - action: edit
@@ -121,7 +126,7 @@ Which file to look at first and why.
 
 const PLANNER = `---
 description: Turns context and requirements into a concrete implementation plan. Read-only: never edits files or runs commands.
-mode: subagent
+mode: all
 color: "#b5179e"
 permissions:
   - action: edit
@@ -154,7 +159,7 @@ Keep the plan concrete: a worker agent will execute it verbatim.
 
 const WORKER = `---
 description: Full-capability worker that carries out one delegated task in its own context window and reports what changed.
-mode: subagent
+mode: all
 color: "#2a9d8f"
 permissions:
   - action: subagent
@@ -180,7 +185,7 @@ Anything the lead should know.
 
 const REVIEWER = `---
 description: Senior code reviewer for quality, security and maintainability. Read-only; reports findings with file and line references.
-mode: subagent
+mode: all
 color: "#e76f51"
 permissions:
   - action: edit
