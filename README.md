@@ -95,13 +95,15 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - **Subagentes identificados**: las sesiones hijas envían
   `x-freepi-subagent: 1`, igual que los proveedores que el CLI crea para sus
   subagentes.
-- **Pensamiento sin forzar**: el plugin no envía un `reasoning_effort` por
-  defecto. Forzar `none` (como hacía una versión anterior) apagaba el
-  razonamiento y los modelos respondían con prisa; dejarlo sin definir usa el
-  nivel del servidor. El selector sigue ofreciendo `minimal`, `low`, `medium` y
-  `high` mediante `reasoning_effort`, igual que `pi-ai`. No se anuncian
-  `thinking_budget` ni `thinking`, porque la ruta `openai-compatible` de
-  OpenCode los descarta.
+- **Pensamiento por defecto**: el plugin pide `reasoning_effort: "medium"`
+  cuando el modelo no trae variante elegida. Dejarlo sin definir hacía que los
+  modelos gratuitos respondieran con prisa, gastando apenas unas decenas de
+  tokens de razonamiento incluso en tareas que requieren planificar. Si el
+  catálogo del modelo solo anuncia `low`/`high`, se usa `high`. El selector
+  sigue ofreciendo `none`, `minimal`, `low`, `medium` y `high`, y la opción
+  `reasoningEffort: false` del plugin recupera el comportamiento anterior (nivel
+  del servidor). No se anuncian `thinking_budget` ni `thinking`, porque la ruta
+  `openai-compatible` de OpenCode los descarta.
 - **Solo modelos utilizables**: al arrancar se consulta `/me` y el selector
   `/model` incluye únicamente lo que la cuenta puede usar: los modelos
   `free: true` siempre, los de pago mientras queden créditos de la cuota o

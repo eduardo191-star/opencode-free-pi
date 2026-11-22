@@ -1,5 +1,5 @@
 /** Turns the free-pi catalog and models.dev registry into model definitions. */
-import { COMPACT100_CONTEXT_WINDOW, CONTEXT_WINDOW, DEFAULT_THINKING_LEVELS, MAX_OUTPUT_TOKENS, } from "../constants.js";
+import { COMPACT100_CONTEXT_WINDOW, CONTEXT_WINDOW, DEFAULT_REASONING_EFFORT, DEFAULT_THINKING_LEVELS, MAX_OUTPUT_TOKENS, REASONING_EFFORTS, } from "../constants.js";
 import { positiveNumber } from "../utils/numbers.js";
 import { cleanText } from "../utils/text.js";
 export function usableModels(catalog) {
@@ -151,6 +151,37 @@ export function modelVariants(options, _outputLimit) {
     }
     return variants;
 }
+export function isReasoningEffort(value) {
+    return (typeof value === "string" &&
+        REASONING_EFFORTS.includes(value));
+}
+/**
+ * The effort sent when no variant is selected. `false` leaves the gateway's
+ * own default untouched; otherwise the catalog's supported levels win over
+ * `medium`, so a model that only accepts `low`/`high` never gets an effort it
+ * would reject.
+ */
+export function preferredReasoningEffort(options, configured) {
+    if (configured === false)
+        return undefined;
+    if (configured)
+        return configured;
+    if (!options || options.length === 0)
+        return DEFAULT_REASONING_EFFORT;
+    const effort = options.find((option) => option.type === "effort");
+    if (effort) {
+        if (effort.values.includes(DEFAULT_REASONING_EFFORT))
+            return DEFAULT_REASONING_EFFORT;
+        if (effort.values.includes("high"))
+            return "high";
+        return effort.values[effort.values.length - 1];
+    }
+    if (options.some((option) => option.type === "toggle"))
+        return "high";
+    if (options.some((option) => option.type === "budget_tokens"))
+        return "high";
+    return DEFAULT_REASONING_EFFORT;
+}
 export function accountAccess(me) {
     if (!me)
         return undefined;
@@ -207,6 +238,9 @@ export function buildModels(models, candidates = [], options = {}) {
             : CONTEXT_WINDOW;
         const limitContext = Math.min(positiveNumber(model.context_window, model.contextWindow, model.limit?.context, capability?.limit?.context) ?? contextCeiling, contextCeiling);
         const limitOutput = Math.min(positiveNumber(model.max_tokens, model.maxTokens, model.max_output_tokens, model.limit?.output, capability?.limit?.output) ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS);
+        const defaultEffort = reasoning
+            ? preferredReasoningEffort(reasoningOptions, options.reasoningEffort)
+            : undefined;
         result[model.id] = {
             id: model.id,
             name: displayName(model),
@@ -217,6 +251,7 @@ export function buildModels(models, candidates = [], options = {}) {
             reasoning,
             reasoning_options: reasoningOptions,
             variants: reasoning ? modelVariants(reasoningOptions, limitOutput) : {},
+            ...(defaultEffort ? { settings: { reasoningEffort: defaultEffort } } : {}),
             enabled: model.unavailable !== true,
             temperature: model.temperature ?? capability?.temperature ?? true,
             tool_call: model.tool_call ?? capability?.tool_call ?? true,

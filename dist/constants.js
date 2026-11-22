@@ -19,13 +19,23 @@ export const SUBAGENT_HEADER = "x-freepi-subagent";
 export const COST_EXPERIMENT_HEADER = "x-freepi-cost-exp";
 export const EFFICIENCY_RULE = "- When several independent reads or searches are needed, issue them in the same turn.";
 /**
- * The provider CLI registers every free-pi model with reasoning enabled and
- * defaults to thinking off. OpenCode only sends `reasoning_effort` when a
- * variant or model setting provides one, so the model carries the off default
- * and the picker offers the levels the CLI would.
+ * The provider CLI starts with thinking off, but leaving `reasoning_effort`
+ * unset makes the gateway answer in a hurry: the free models spend only a few
+ * dozen reasoning tokens even on tasks that need planning. The plugin therefore
+ * asks for `medium` by default and keeps the CLI's levels as variants, so
+ * `none`/`minimal` are still one pick away when speed matters more than care.
  */
-export const DEFAULT_REASONING_EFFORT = "none";
+export const DEFAULT_REASONING_EFFORT = "medium";
+export const REASONING_EFFORTS = [
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "max",
+];
 export const DEFAULT_THINKING_LEVELS = [
+    "none",
     "minimal",
     "low",
     "medium",

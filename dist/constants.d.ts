@@ -19,13 +19,15 @@ export declare const SUBAGENT_HEADER = "x-freepi-subagent";
 export declare const COST_EXPERIMENT_HEADER = "x-freepi-cost-exp";
 export declare const EFFICIENCY_RULE = "- When several independent reads or searches are needed, issue them in the same turn.";
 /**
- * The provider CLI registers every free-pi model with reasoning enabled and
- * defaults to thinking off. OpenCode only sends `reasoning_effort` when a
- * variant or model setting provides one, so the model carries the off default
- * and the picker offers the levels the CLI would.
+ * The provider CLI starts with thinking off, but leaving `reasoning_effort`
+ * unset makes the gateway answer in a hurry: the free models spend only a few
+ * dozen reasoning tokens even on tasks that need planning. The plugin therefore
+ * asks for `medium` by default and keeps the CLI's levels as variants, so
+ * `none`/`minimal` are still one pick away when speed matters more than care.
  */
-export declare const DEFAULT_REASONING_EFFORT = "none";
-export declare const DEFAULT_THINKING_LEVELS: readonly ["minimal", "low", "medium", "high"];
+export declare const DEFAULT_REASONING_EFFORT = "medium";
+export declare const REASONING_EFFORTS: readonly ["none", "minimal", "low", "medium", "high", "max"];
+export declare const DEFAULT_THINKING_LEVELS: readonly ["none", "minimal", "low", "medium", "high"];
 /** pi-ai's HTTP idle timeout for headers and body chunks. */
 export declare const HEADER_TIMEOUT_MS = 300000;
 export declare const CHUNK_TIMEOUT_MS = 300000;

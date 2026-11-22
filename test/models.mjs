@@ -54,9 +54,9 @@ assert.deepEqual(free.variants, {
   low: { reasoningEffort: "low" },
   high: { reasoningEffort: "high" },
 });
-// No forced default effort: sending `reasoningEffort: "none"` made every model
-// skip thinking entirely, which the CLI never does.
-assert.equal(free.settings, undefined);
+// A model that only lists `low`/`high` gets the strongest of those levels as
+// its default; sending no effort made free models answer before thinking.
+assert.deepEqual(free.settings, { reasoningEffort: "high" });
 assert.equal(free.enabled, true);
 
 // free-pi bills in credits, not per-token USD, so every model reports zero
@@ -151,11 +151,38 @@ assert.deepEqual(
 // Without catalog options the CLI still offers these levels to every
 // reasoning model.
 assert.deepEqual(modelVariants(undefined, 8_192), {
+  none: { reasoningEffort: "none" },
   minimal: { reasoningEffort: "minimal" },
   low: { reasoningEffort: "low" },
   medium: { reasoningEffort: "medium" },
   high: { reasoningEffort: "high" },
 });
+
+// The default effort is `medium` whenever the model accepts it, because an
+// unset effort makes the free models skip planning altogether.
+const { preferredReasoningEffort, isReasoningEffort } = await import(
+  "../dist/catalog/models.js"
+);
+assert.equal(preferredReasoningEffort(undefined), "medium");
+assert.equal(
+  preferredReasoningEffort([{ type: "effort", values: ["low", "high"] }]),
+  "high",
+);
+assert.equal(
+  preferredReasoningEffort([
+    { type: "effort", values: ["minimal", "low", "medium", "high"] },
+  ]),
+  "medium",
+);
+assert.equal(preferredReasoningEffort([{ type: "toggle" }]), "high");
+assert.equal(
+  preferredReasoningEffort([{ type: "budget_tokens", min: 1, max: 2 }]),
+  "high",
+);
+assert.equal(preferredReasoningEffort(undefined, "low"), "low");
+assert.equal(preferredReasoningEffort(undefined, false), undefined);
+assert.equal(isReasoningEffort("medium"), true);
+assert.equal(isReasoningEffort("xhigh"), false);
 
 // The V2 projection keeps capabilities, variants, limits and cost tiers.
 const [v2] = toV2Models("free-pi", { "free-model": free });
@@ -166,7 +193,7 @@ assert.equal(v2.capabilities.tools, false);
 assert.deepEqual(v2.capabilities.input, ["text"]);
 assert.deepEqual(v2.capabilities.output, ["text"]);
 assert.equal(v2.capabilities.temperature, false);
-assert.equal(v2.settings, undefined);
+assert.deepEqual(v2.settings, { reasoningEffort: "high" });
 assert.deepEqual(v2.variants, [
   { id: "low", settings: { reasoningEffort: "low" } },
   { id: "high", settings: { reasoningEffort: "high" } },

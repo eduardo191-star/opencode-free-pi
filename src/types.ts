@@ -110,6 +110,11 @@ export type ModelMap = Record<string, ModelDefinition>;
 
 export type FreePiOptions = {
   includeDefense?: boolean;
+  /**
+   * Effort used when no variant is picked. Defaults to `medium` so the free
+   * models plan before answering. Set `false` to keep the gateway default.
+   */
+  reasoningEffort?: string | false;
 };
 
 export type MeResponse = {

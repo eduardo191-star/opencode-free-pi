@@ -12,9 +12,23 @@ export declare function modelCost(_model: CatalogModel, _capability?: ModelsDevM
 export declare function modelRegistryCandidates(registry: ModelRegistry | undefined): RegistryCandidate[];
 export declare function modelCapability(model: CatalogModel, candidates: RegistryCandidate[]): ModelsDevModel | undefined;
 export declare function modelVariants(options: ReasoningOption[] | undefined, _outputLimit: number): VariantMap;
+export declare function isReasoningEffort(value: unknown): value is string;
+/**
+ * The effort sent when no variant is selected. `false` leaves the gateway's
+ * own default untouched; otherwise the catalog's supported levels win over
+ * `medium`, so a model that only accepts `low`/`high` never gets an effort it
+ * would reject.
+ */
+export declare function preferredReasoningEffort(options: ReasoningOption[] | undefined, configured?: string | false): string | undefined;
 export type BuildModelsOptions = {
     /** pi's `compact100` arm compacts at 100k instead of the default ceiling. */
     compact100?: boolean;
+    /**
+     * Effort sent when the user has not picked a variant. `false` keeps the
+     * gateway default. Defaults to `medium` because an unset effort makes the
+     * free models answer before they reason.
+     */
+    reasoningEffort?: string | false;
 };
 /**
  * What the signed-in account can actually use, derived from `GET /me`.

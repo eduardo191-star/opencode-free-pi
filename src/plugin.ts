@@ -19,6 +19,7 @@ import {
   accountAccess,
   buildModels,
   filterAccessibleModels,
+  isReasoningEffort,
   modelRegistryCandidates,
   partitionModels,
 } from "./catalog/models.js";
@@ -129,7 +130,15 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
   const main = filterAccessibleModels(catalogMain, access);
   const defense = filterAccessibleModels(catalogDefense, access);
   const candidates = modelRegistryCandidates(registry);
-  const buildOptions = { compact100: state.costExperimentArm === "compact100" };
+  const configuredEffort = ctx.options?.reasoningEffort;
+  const buildOptions = {
+    compact100: state.costExperimentArm === "compact100",
+    ...(configuredEffort === false
+      ? { reasoningEffort: false as const }
+      : isReasoningEffort(configuredEffort)
+        ? { reasoningEffort: configuredEffort }
+        : {}),
+  };
   const mainModels = buildModels(main, candidates, buildOptions);
   const defenseModels = buildModels(defense, candidates, buildOptions);
 

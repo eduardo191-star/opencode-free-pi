@@ -7,7 +7,7 @@ import { closeFreePiSession } from "./api/session.js";
 import { readCredentialsToken } from "./auth/credentials.js";
 import { tokenFromCredential } from "./auth/credential.js";
 import { fetchCatalog } from "./catalog/catalog.js";
-import { accountAccess, buildModels, filterAccessibleModels, modelRegistryCandidates, partitionModels, } from "./catalog/models.js";
+import { accountAccess, buildModels, filterAccessibleModels, isReasoningEffort, modelRegistryCandidates, partitionModels, } from "./catalog/models.js";
 import { fetchModelsRegistry } from "./catalog/registry.js";
 import { applyProvider } from "./catalog/v2.js";
 import { DEFENSE_PROVIDER_ID, PROVIDER_ID, } from "./constants.js";
@@ -103,7 +103,15 @@ async function setup(ctx) {
     const main = filterAccessibleModels(catalogMain, access);
     const defense = filterAccessibleModels(catalogDefense, access);
     const candidates = modelRegistryCandidates(registry);
-    const buildOptions = { compact100: state.costExperimentArm === "compact100" };
+    const configuredEffort = ctx.options?.reasoningEffort;
+    const buildOptions = {
+        compact100: state.costExperimentArm === "compact100",
+        ...(configuredEffort === false
+            ? { reasoningEffort: false }
+            : isReasoningEffort(configuredEffort)
+                ? { reasoningEffort: configuredEffort }
+                : {}),
+    };
     const mainModels = buildModels(main, candidates, buildOptions);
     const defenseModels = buildModels(defense, candidates, buildOptions);
     for (const [id, model] of Object.entries(mainModels)) {
