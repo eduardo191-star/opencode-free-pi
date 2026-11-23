@@ -17,6 +17,7 @@ import { closeFreePiSession } from "../api/session.js";
 import { overflowCodeOf } from "../errors/limit.js";
 import { sleep, trimMap } from "../utils/async.js";
 import { profileRequest, SPURIOUS_OVERFLOW_TOKENS, } from "./overflow.js";
+import { traceRequestBody } from "./trace.js";
 import { rotateWireSessionID, wireSessionID } from "./wire.js";
 const REPLAY_BODY_LIMIT = 24;
 const REPLAY_MAX_ATTEMPTS = 4;
@@ -44,6 +45,7 @@ export async function rememberReplayBody(deps, event) {
         deps.state.replayBodies.delete(key);
         deps.state.replayBodies.set(key, body);
         trimMap(deps.state.replayBodies, REPLAY_BODY_LIMIT);
+        traceRequestBody(deps, event.sessionID, body);
     }
     catch {
         // A non-replayable body simply falls back to the normal retry hook.

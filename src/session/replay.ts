@@ -22,6 +22,7 @@ import {
   profileRequest,
   SPURIOUS_OVERFLOW_TOKENS,
 } from "./overflow.js";
+import { traceRequestBody } from "./trace.js";
 import { rotateWireSessionID, wireSessionID } from "./wire.js";
 
 const REPLAY_BODY_LIMIT = 24;
@@ -56,6 +57,7 @@ export async function rememberReplayBody(
     deps.state.replayBodies.delete(key);
     deps.state.replayBodies.set(key, body);
     trimMap(deps.state.replayBodies, REPLAY_BODY_LIMIT);
+    traceRequestBody(deps, event.sessionID, body);
   } catch {
     // A non-replayable body simply falls back to the normal retry hook.
   }

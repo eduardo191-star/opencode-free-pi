@@ -455,6 +455,7 @@ Si `XDG_CONFIG_HOME` o `OPENCODE_CONFIG_DIR` están definidos, se respetan.
 | `OPENCODE_CONFIG_DIR`     | Directorio de configuración de OpenCode.             |
 | `FREE_PI_DATA_DIR`        | Directorio de datos del plugin.                      |
 | `FREE_PI_LOG_FILE`        | Ruta alternativa del archivo de log del plugin.      |
+| `FREE_PI_TRACE=1`         | Registra en el log la forma real de cada petición: herramientas enviadas, tamaños y último mensaje. |
 
 No hay variables obligatorias.
 
