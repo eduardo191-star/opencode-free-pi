@@ -1312,10 +1312,20 @@ try {
   {
     deps.state.contextLimits.set("free-pi/hy4-flash", 200_000);
     const dietMessages = [
-      { role: "user", content: "corrige el parser" },
-      { role: "tool", tool_call_id: "t1", content: "a".repeat(400_000) },
+      { role: "user", content: [{ type: "text", text: "corrige el parser" }] },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            id: "t1",
+            name: "read",
+            result: { type: "text", value: "a".repeat(400_000) },
+          },
+        ],
+      },
       { role: "assistant", content: [{ type: "text", text: "confirmado" }] },
-      { role: "user", content: "aplica el cambio" },
+      { role: "user", content: [{ type: "text", text: "aplica el cambio" }] },
     ];
     const dietEvent = await invoke("context", "free-pi", {
       sessionID: "ses_diet",
@@ -1331,7 +1341,7 @@ try {
     assert.deepEqual(dietEvent.messages[2], dietMessages[2]);
     assert.deepEqual(dietEvent.messages[3], dietMessages[3]);
     assert.match(
-      dietEvent.messages[1].content,
+      dietEvent.messages[1].content[0].result.value,
       /characters of this tool result were pruned/,
     );
     assert.ok(

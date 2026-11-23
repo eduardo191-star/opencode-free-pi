@@ -32,6 +32,37 @@ function textOfContent(content) {
     }
     return text;
 }
+/**
+ * Renders an OpenCode v2 `tool-result` value as text. Media parts (files,
+ * images) are never rendered: pruning them would destroy the payload instead of
+ * shortening prose.
+ */
+function textOfResult(result) {
+    if (!result || typeof result !== "object")
+        return undefined;
+    if (result.type === "content") {
+        if (!Array.isArray(result.value))
+            return undefined;
+        let text = "";
+        for (const part of result.value) {
+            if (part?.type === "file")
+                return undefined;
+            if (typeof part?.text === "string")
+                text += part.text;
+        }
+        return text;
+    }
+    if (typeof result.value === "string")
+        return result.value;
+    if (result.value === undefined || result.value === null)
+        return undefined;
+    try {
+        return JSON.stringify(result.value);
+    }
+    catch {
+        return undefined;
+    }
+}
 function onlyTextParts(content) {
     if (!Array.isArray(content))
         return false;
@@ -48,21 +79,42 @@ function stub(text) {
 }
 /**
  * The same message with its tool result collapsed, or `undefined` when the
- * message has nothing worth pruning. Both shapes are supported: OpenAI-style
- * `role: "tool"` messages and the native assistant parts with `state.content`.
+ * message has nothing worth pruning. The native v2 shape (`tool-result` parts
+ * with `result.value`) is the one OpenCode sends; the OpenAI-style shapes are
+ * accepted too so a provider-lowered list is handled the same way.
  */
 function shrunk(message) {
     const role = messageRole(message);
     const record = message;
     if (role === "tool") {
-        const text = typeof record.content === "string"
-            ? record.content
-            : onlyTextParts(record.content)
-                ? textOfContent(record.content)
-                : "";
-        if (text.length < MIN_PRUNE_CHARS)
+        if (typeof record.content === "string") {
+            return record.content.length < MIN_PRUNE_CHARS
+                ? undefined
+                : { ...record, content: stub(record.content) };
+        }
+        if (!Array.isArray(record.content))
             return undefined;
-        return { ...record, content: stub(text) };
+        const parts = record.content;
+        if (parts.length === 0)
+            return undefined;
+        // Legacy/OpenAI-style text parts.
+        if (onlyTextParts(parts)) {
+            const text = textOfContent(parts);
+            if (text.length < MIN_PRUNE_CHARS)
+                return undefined;
+            return { ...record, content: stub(text) };
+        }
+        let changed = false;
+        const next = parts.map((part) => {
+            if (part?.type !== "tool-result")
+                return part;
+            const text = textOfResult(part.result);
+            if (!text || text.length < MIN_PRUNE_CHARS)
+                return part;
+            changed = true;
+            return { ...part, result: { type: "text", value: stub(text) } };
+        });
+        return changed ? { ...record, content: next } : undefined;
     }
     if (role !== "assistant" || !Array.isArray(record.content))
         return undefined;

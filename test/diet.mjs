@@ -75,6 +75,73 @@ const stubbed = (text) =>
   assert.equal(result.messages, messages);
 }
 
+// The native v2 shape OpenCode actually sends: tool-result parts with
+// `result.value`. The head and the tail survive, the middle is collapsed.
+{
+  const big = "q".repeat(40_000);
+  const messages = [
+    { role: "user", content: [{ type: "text", text: "arregla el parser" }] },
+    {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          id: "t1",
+          name: "read",
+          result: { type: "text", value: `${big}START${big}END` },
+        },
+      ],
+    },
+    { role: "user", content: [{ type: "text", text: "sigue" }] },
+  ];
+  const result = pruneStaleToolResults(messages, 4_000, estimate);
+  assert.equal(result.pruned, 1);
+  const part = result.messages[1].content[0];
+  assert.equal(part.name, "read");
+  assert.equal(part.id, "t1");
+  assert.equal(part.result.type, "text");
+  assert.ok(stubbed(part.result.value));
+  assert.ok(part.result.value.startsWith("q".repeat(600)));
+  assert.ok(part.result.value.endsWith("END"));
+  assert.deepEqual(result.messages[0], messages[0]);
+  assert.deepEqual(result.messages[2], messages[2]);
+}
+
+// Media results and json results that are small are left alone.
+{
+  const messages = [
+    {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          id: "t1",
+          name: "read",
+          result: {
+            type: "content",
+            value: [{ type: "file", uri: "data:image/png;base64,AAAA" }],
+          },
+        },
+      ],
+    },
+    {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          id: "t2",
+          name: "shell",
+          result: { type: "json", value: { exit: 0 } },
+        },
+      ],
+    },
+    { role: "user", content: "z".repeat(80_000) },
+  ];
+  const result = pruneStaleToolResults(messages, 4_000, estimate);
+  assert.equal(result.pruned, 0);
+  assert.equal(result.messages, messages);
+}
+
 // The native shape (assistant parts with state.content) is pruned too, keeping
 // the tool name and its input.
 {
