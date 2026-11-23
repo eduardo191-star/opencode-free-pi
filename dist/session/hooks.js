@@ -505,8 +505,54 @@ async function registerToolHooks(ctx, deps, registrations) {
             status: event.status,
             ...(event.status === "completed" ? { result: event.result } : {}),
         });
+        nudgeFailedTool(deps, event);
         replaceUnsupportedImages(deps, event);
     }));
+}
+/**
+ * Adds the concrete next step to a tool failure the free models repeat.
+ *
+ * The scan of a week of sessions shows the same failures over and over: the
+ * portable shell scanner rejects a heredoc or a nested-quote one-liner (72
+ * times), `edit` gets identical strings (12) or an ambiguous `oldString` (8).
+ * The model reads the bare error and often repeats the call. The hint is short
+ * and only goes to free-pi sessions; other providers keep their own messages.
+ */
+function nudgeFailedTool(deps, event) {
+    if (event.status !== "error")
+        return;
+    if (!isFreePiSession(deps, event.sessionID))
+        return;
+    const error = event.error;
+    if (!error || typeof error !== "object")
+        return;
+    const message = typeof error.message === "string" ? error.message : "";
+    if (!message)
+        return;
+    let hint = "";
+    if (message.includes("Portable shell scanner cannot analyze command")) {
+        hint =
+            " Write the script to a file with the write tool and run that file; on Windows use PowerShell cmdlets instead of cmd syntax.";
+    }
+    else if (/No changes to apply: oldString and newString are identical/i.test(message)) {
+        hint =
+            " Change the replacement text: oldString and newString must differ. Re-read the line you want to change first.";
+    }
+    else if (/Found \d+ matches? for oldString/i.test(message)) {
+        hint =
+            " Include enough surrounding lines so oldString matches exactly once, or set replaceAll when every occurrence must change.";
+    }
+    else if (/has not been read yet|read it before/i.test(message)) {
+        hint = " Read the file with the read tool in this turn before editing it.";
+    }
+    if (!hint)
+        return;
+    try {
+        error.message = `${message}${hint}`;
+    }
+    catch {
+        // A frozen error still reaches the model unchanged; the hint is best effort.
+    }
 }
 /**
  * Models whose upstream accepts images get them natively, so a `read` that

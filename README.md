@@ -168,6 +168,10 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   omitir: leer antes de editar, ejecutar las comprobaciones de verdad, no
   afirmar que algo pasó si no se ejecutó, reutilizar las decisiones y rutas ya
   establecidas en la conversación y no fingir que se compactó el contexto.
+  Además, cuando una herramienta falla por un motivo que el modelo repite (un
+  heredoc rechazado por el scanner del shell, un `edit` con cadenas idénticas o
+  con un `oldString` ambiguo), el error que recibe añade el siguiente paso
+  concreto en lugar de dejar solo el mensaje técnico.
 - **Compactación con instrucciones**: el resumen de compactación recibe además
   un bloque que le pide conservar requisitos sin resolver, decisiones y sus
   motivos, rutas y símbolos exactos, comandos con su resultado, errores y

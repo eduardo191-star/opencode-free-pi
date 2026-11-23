@@ -498,6 +498,51 @@ try {
   );
   assert.equal(withTools.headers["x-freepi-tool-errors"], "v1:call_2");
 
+  // A failure the free models repeat comes back with the concrete next step.
+  deps.state.freePiSessions.add("ses_nudge");
+  const scannerFailure = {
+    sessionID: "ses_nudge",
+    agent: "build",
+    messageID: "msg_tool",
+    id: "call_shell",
+    tool: "shell",
+    input: {},
+    status: "error",
+    error: new Error("Portable shell scanner cannot analyze command: invalid-structure"),
+  };
+  await toolAfter.callback(scannerFailure);
+  assert.match(scannerFailure.error.message, /Write the script to a file/);
+
+  const identicalEdit = {
+    sessionID: "ses_nudge",
+    agent: "build",
+    messageID: "msg_tool",
+    id: "call_edit",
+    tool: "edit",
+    input: {},
+    status: "error",
+    error: new Error("No changes to apply: oldString and newString are identical."),
+  };
+  await toolAfter.callback(identicalEdit);
+  assert.match(identicalEdit.error.message, /oldString and newString must differ/);
+
+  const otherProviderFailure = {
+    sessionID: "ses_other_provider",
+    agent: "build",
+    messageID: "msg_tool",
+    id: "call_5",
+    tool: "shell",
+    input: {},
+    status: "error",
+    error: new Error("Portable shell scanner cannot analyze command: invalid-structure"),
+  };
+  await toolAfter.callback(otherProviderFailure);
+  assert.doesNotMatch(
+    otherProviderFailure.error.message,
+    /Write the script to a file/,
+    "other providers keep their own tool errors",
+  );
+
   // free-pi is text-only, so a read image is replaced when the tool settles:
   // the base64 payload never enters the session or a later compaction.
   const imageEvent = {
