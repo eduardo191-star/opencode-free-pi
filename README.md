@@ -185,6 +185,13 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   ya esté en memoria en vez de inventar límites. Los avisos que el servidor
   manda en el catálogo y en `/me` (`notice`) se registran una vez en el log del
   plugin.
+- **Catálogo que se recupera solo**: si `/client-version` no responde, el
+  proveedor quedaría registrado sin modelos y el selector de esa ubicación
+  mostraría «Model unavailable» para todos los modelos free-pi. Por eso la
+  petición se reintenta una vez de inmediato y, si aun así falla, el plugin
+  vuelve a pedir el catálogo en segundo plano (2 s, 5 s, 10 s, 20 s, 30 s y 60 s)
+  y, en cuanto lo obtiene, registra los modelos y recarga proveedor y modelo en
+  caliente. No hace falta reiniciar OpenCode ni elegir otra carpeta.
 - **Aislamiento por proveedor**: todo lo que añade el plugin —herramientas,
   cabeceras, anuncios, reglas de prompt, compactación, reintentos, topes de
   tokens y ajustes— se aplica solo a `free-pi` y `free-pi-defense`. Los demás

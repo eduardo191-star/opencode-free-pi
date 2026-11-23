@@ -103,6 +103,15 @@ export declare const AD_IMPRESSION_LIMIT = 200;
 export declare const CREDITS_PER_USD: number;
 export declare const CATALOG_TTL_MS: number;
 export declare const CATALOG_TIMEOUT_MS = 8000;
+export declare const CATALOG_ATTEMPTS = 2;
+export declare const CATALOG_RETRY_MS = 1000;
+/**
+ * When the catalog cannot be fetched, the provider is registered with no models
+ * and the model picker loses every free-pi entry for that location. These are
+ * the delays before each background attempt to fetch it again and re-register
+ * the models, so a transient timeout heals without restarting OpenCode.
+ */
+export declare const CATALOG_RECOVERY_DELAYS_MS: readonly [2000, 5000, 10000, 20000, 30000, 60000];
 export declare const REGISTRY_TTL_MS: number;
 export declare const REGISTRY_RETRY_MS = 60000;
 export declare const REGISTRY_TIMEOUT_MS = 3500;

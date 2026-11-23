@@ -148,6 +148,17 @@ export const CREDITS_PER_USD = 40_000 / 3;
 
 export const CATALOG_TTL_MS = 10 * 60_000;
 export const CATALOG_TIMEOUT_MS = 8_000;
+export const CATALOG_ATTEMPTS = 2;
+export const CATALOG_RETRY_MS = 1_000;
+/**
+ * When the catalog cannot be fetched, the provider is registered with no models
+ * and the model picker loses every free-pi entry for that location. These are
+ * the delays before each background attempt to fetch it again and re-register
+ * the models, so a transient timeout heals without restarting OpenCode.
+ */
+export const CATALOG_RECOVERY_DELAYS_MS = [
+  2_000, 5_000, 10_000, 20_000, 30_000, 60_000,
+] as const;
 export const REGISTRY_TTL_MS = 5 * 60_000;
 export const REGISTRY_RETRY_MS = 60_000;
 export const REGISTRY_TIMEOUT_MS = 3_500;

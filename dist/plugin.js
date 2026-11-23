@@ -10,7 +10,7 @@ import { currentLiveLimits, loadLiveLimits, shouldVerifyWindow, verifyGatewayWin
 import { accountAccess, buildModels, filterAccessibleModels, isReasoningEffort, modelRegistryCandidates, partitionModels, } from "./catalog/models.js";
 import { fetchModelsRegistry } from "./catalog/registry.js";
 import { applyProvider } from "./catalog/v2.js";
-import { DEFENSE_PROVIDER_ID, PROVIDER_ID, } from "./constants.js";
+import { CATALOG_RECOVERY_DELAYS_MS, DEFENSE_PROVIDER_ID, PROVIDER_ID, } from "./constants.js";
 import { registerIntegration } from "./integration/setup.js";
 import { createLogger } from "./logging.js";
 import { subscribeEvents } from "./session/events.js";
@@ -150,8 +150,9 @@ async function setup(ctx) {
     // Without a quota snapshot every model stays visible.
     const access = accountAccess(quota?.me);
     const { main: catalogMain, defense: catalogDefense } = partitionModels(catalog);
-    const main = filterAccessibleModels(catalogMain, access);
-    const defense = filterAccessibleModels(catalogDefense, access);
+    let currentCatalog = catalog;
+    let currentMain = filterAccessibleModels(catalogMain, access);
+    let currentDefense = filterAccessibleModels(catalogDefense, access);
     const candidates = modelRegistryCandidates(registry);
     const live = await loadLiveLimits();
     const configuredEffort = ctx.options?.reasoningEffort;
@@ -163,34 +164,41 @@ async function setup(ctx) {
                 ? { reasoningEffort: configuredEffort }
                 : {}),
     };
-    const mainModels = buildModels(main, candidates, buildOptions);
-    const defenseModels = buildModels(defense, candidates, buildOptions);
-    for (const [id, model] of Object.entries(mainModels)) {
-        state.outputLimits.set(`${PROVIDER_ID}/${id}`, model.limit.output);
-        if (model.modalities.input.includes("image")) {
-            state.imageModels.add(`${PROVIDER_ID}/${id}`);
+    // Rebuilt on every call so a learned context ceiling or a recovered catalog
+    // applies without restarting OpenCode.
+    const buildMain = () => buildModels(currentMain, candidates, {
+        ...buildOptions,
+        live: currentLiveLimits() ?? live,
+    });
+    const buildDefense = () => buildModels(currentDefense, candidates, {
+        ...buildOptions,
+        live: currentLiveLimits() ?? live,
+    });
+    function indexModelState() {
+        const mainNow = buildMain();
+        const defenseNow = buildDefense();
+        for (const [id, model] of Object.entries(mainNow)) {
+            state.outputLimits.set(`${PROVIDER_ID}/${id}`, model.limit.output);
+            if (model.modalities.input.includes("image")) {
+                state.imageModels.add(`${PROVIDER_ID}/${id}`);
+            }
+        }
+        for (const [id, model] of Object.entries(defenseNow)) {
+            state.outputLimits.set(`${DEFENSE_PROVIDER_ID}/${id}`, model.limit.output);
+            if (model.modalities.input.includes("image")) {
+                state.imageModels.add(`${DEFENSE_PROVIDER_ID}/${id}`);
+            }
         }
     }
-    for (const [id, model] of Object.entries(defenseModels)) {
-        state.outputLimits.set(`${DEFENSE_PROVIDER_ID}/${id}`, model.limit.output);
-        if (model.modalities.input.includes("image")) {
-            state.imageModels.add(`${DEFENSE_PROVIDER_ID}/${id}`);
-        }
-    }
+    indexModelState();
     const credential = await deps.activeCredential().catch(() => undefined);
     state.providerToken =
         tokenFromCredential(credential) ?? (await readCredentialsToken());
     await registerIntegration(ctx, deps);
     await ctx.provider.transform((editor) => {
-        // Rebuilt on every transform so a learned context ceiling applies as soon
-        // as the response hook records it, without restarting OpenCode.
-        const active = currentLiveLimits() ?? live;
-        const buildOptionsNow = { ...buildOptions, live: active };
-        const mainNow = buildModels(main, candidates, buildOptionsNow);
-        const defenseNow = buildModels(defense, candidates, buildOptionsNow);
-        applyProvider(editor, PROVIDER_ID, "Free Pi", mainNow, state.providerToken);
-        if (includeDefense && defense.length > 0) {
-            applyProvider(editor, DEFENSE_PROVIDER_ID, "Free Pi Defense", defenseNow, state.providerToken);
+        applyProvider(editor, PROVIDER_ID, "Free Pi", buildMain(), state.providerToken);
+        if (includeDefense && currentDefense.length > 0) {
+            applyProvider(editor, DEFENSE_PROVIDER_ID, "Free Pi Defense", buildDefense(), state.providerToken);
         }
     });
     // The gateway does not publish its context ceiling. Verify the compiled
@@ -199,19 +207,19 @@ async function setup(ctx) {
     // the largest prompt already accepted in real traffic: it has the most
     // evidence behind it, so the growth probes describe the window sessions use.
     if (ctx.options?.liveLimits !== false && shouldVerifyWindow(live)) {
-        const free = main.filter((model) => model.free === true && typeof model.id === "string");
+        const free = currentMain.filter((model) => model.free === true && typeof model.id === "string");
         const probe = free
             .map((model) => ({
             id: model.id,
             seen: live?.models[model.id ?? ""]?.maxPromptTokens ?? 0,
         }))
             .sort((a, b) => b.seen - a.seen)[0]?.id ??
-            (catalog?.default_model &&
-                free.some((model) => model.id === catalog.default_model)
-                ? catalog.default_model
+            (currentCatalog?.default_model &&
+                free.some((model) => model.id === currentCatalog?.default_model)
+                ? currentCatalog.default_model
                 : undefined) ??
             free[0]?.id ??
-            Object.keys(mainModels)[0];
+            Object.keys(buildMain())[0];
         if (probe) {
             void verifyGatewayWindow(deps, { model: probe }).catch(() => undefined);
         }
@@ -220,9 +228,10 @@ async function setup(ctx) {
     await ctx.model.transform((editor) => {
         if (editor.default.get())
             return;
-        const preferred = (catalog?.default_model && mainModels[catalog.default_model]
-            ? catalog.default_model
-            : undefined) ?? Object.keys(mainModels)[0];
+        const models = buildMain();
+        const preferred = (currentCatalog?.default_model && models[currentCatalog.default_model]
+            ? currentCatalog.default_model
+            : undefined) ?? Object.keys(models)[0];
         if (preferred)
             editor.default.set(PROVIDER_ID, preferred);
     });
@@ -248,11 +257,61 @@ async function setup(ctx) {
     }
     const abort = new AbortController();
     const eventTask = subscribeEvents(ctx, deps, abort.signal);
-    log.info(`Loaded ${main.length} free-pi model(s) and ${includeDefense ? defense.length : 0} defense model(s)`, {
-        defaultModel: catalog?.default_model,
+    // A failed catalog fetch registers the provider with zero models, which
+    // hides every free-pi entry from the model picker for this location until
+    // OpenCode restarts. Retry in the background and re-register the models as
+    // soon as the gateway answers, so a transient timeout heals on its own.
+    const waitForAbort = (ms) => new Promise((resolve) => {
+        if (abort.signal.aborted)
+            return resolve();
+        const finish = () => {
+            clearTimeout(timer);
+            abort.signal.removeEventListener("abort", finish);
+            resolve();
+        };
+        const timer = setTimeout(finish, ms);
+        abort.signal.addEventListener("abort", finish, { once: true });
+    });
+    const catalogRecovery = (async () => {
+        // Only a missing catalog needs recovery; an empty model list after access
+        // filtering means the account cannot use these models, not a timeout.
+        if (currentCatalog)
+            return;
+        for (const delay of CATALOG_RECOVERY_DELAYS_MS) {
+            if (abort.signal.aborted || currentMain.length > 0)
+                return;
+            await waitForAbort(delay);
+            if (abort.signal.aborted || currentMain.length > 0)
+                return;
+            const next = await fetchCatalog(deps).catch(() => undefined);
+            if (!next)
+                continue;
+            const parts = partitionModels(next);
+            const accessNow = accountAccess(state.quotaCache?.me);
+            const nextMain = filterAccessibleModels(parts.main, accessNow);
+            if (nextMain.length === 0)
+                continue;
+            currentCatalog = next;
+            currentMain = nextMain;
+            currentDefense = filterAccessibleModels(parts.defense, accessNow);
+            indexModelState();
+            await ctx.provider.reload().catch(() => undefined);
+            await ctx.model.reload().catch(() => undefined);
+            log.info(`free-pi catalog recovered; registered ${currentMain.length} model(s)`, {
+                defaultModel: currentCatalog?.default_model,
+                clientVersion: state.latestClientVersion,
+                models: currentMain.map((model) => model.id),
+            });
+            return;
+        }
+        log.warn("free-pi catalog stayed unreachable; free-pi models remain unavailable", { attempts: CATALOG_RECOVERY_DELAYS_MS.length });
+    })();
+    void catalogRecovery.catch(() => undefined);
+    log.info(`Loaded ${currentMain.length} free-pi model(s) and ${includeDefense ? currentDefense.length : 0} defense model(s)`, {
+        defaultModel: currentCatalog?.default_model,
         clientVersion: state.latestClientVersion,
         capabilities: candidates.length,
-        models: main.map((model) => model.id),
+        models: currentMain.map((model) => model.id),
     });
     return async () => {
         abort.abort();

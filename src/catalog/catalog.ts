@@ -2,11 +2,14 @@
 
 import { resolveToken } from "../auth/token.js";
 import {
+  CATALOG_ATTEMPTS,
+  CATALOG_RETRY_MS,
   CATALOG_TIMEOUT_MS,
   CATALOG_TTL_MS,
 } from "../constants.js";
 import type { Deps } from "../deps.js";
 import type { Catalog } from "../types.js";
+import { sleep } from "../utils/async.js";
 import { resolveBaseUrl } from "../utils/urls.js";
 
 function isCatalog(value: unknown): value is Catalog {
@@ -43,33 +46,48 @@ export function refreshCatalog(deps: Deps): Promise<Catalog | undefined> {
   const state = deps.state;
   if (state.catalogPromise) return state.catalogPromise;
   const pending = (async () => {
-    try {
-      const token = await resolveToken(deps).catch(() => undefined);
-      const headers: Record<string, string> = {
-        accept: "application/json",
-      };
-      if (token) headers.authorization = `Bearer ${token}`;
-      const response = await fetch(`${resolveBaseUrl()}/client-version`, {
-        headers,
-        signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const catalog = (await response.json()) as Catalog;
-      if (!isCatalog(catalog)) {
-        throw new Error("free-pi returned an unexpected catalog payload");
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= CATALOG_ATTEMPTS; attempt += 1) {
+      try {
+        const token = await resolveToken(deps).catch(() => undefined);
+        const headers: Record<string, string> = {
+          accept: "application/json",
+        };
+        if (token) headers.authorization = `Bearer ${token}`;
+        const response = await fetch(`${resolveBaseUrl()}/client-version`, {
+          headers,
+          signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const catalog = (await response.json()) as Catalog;
+        if (!isCatalog(catalog)) {
+          throw new Error("free-pi returned an unexpected catalog payload");
+        }
+        applyCatalog(deps, catalog);
+        return catalog;
+      } catch (error) {
+        lastError = error;
+        // A timeout or a dropped connection is often transient. Retrying here
+        // avoids registering a provider with zero models for this location,
+        // which would hide every free-pi model from the picker until OpenCode
+        // restarts.
+        if (attempt < CATALOG_ATTEMPTS) {
+          deps.log.info("free-pi catalog request failed; retrying", {
+            attempt,
+            reason: reasonText(error),
+          });
+          await sleep(CATALOG_RETRY_MS * attempt);
+        }
       }
-      applyCatalog(deps, catalog);
-      return catalog;
-    } catch (error) {
-      const cached = state.cachedCatalog;
-      deps.log.warn(
-        cached
-          ? "free-pi catalog is unreachable; using the cached model list"
-          : "free-pi catalog is unreachable; no free-pi models were registered",
-        { reason: reasonText(error) },
-      );
-      return cached;
     }
+    const cached = state.cachedCatalog;
+    deps.log.warn(
+      cached
+        ? "free-pi catalog is unreachable; using the cached model list"
+        : "free-pi catalog is unreachable; no free-pi models were registered",
+      { reason: reasonText(lastError) },
+    );
+    return cached;
   })();
   state.catalogPromise = pending;
   void pending.finally(() => {
