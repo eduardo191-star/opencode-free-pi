@@ -37,7 +37,14 @@ export type RequestProfile = {
 export declare function profileRequest(body: string): RequestProfile;
 /** Token count of a request body, without the extra facts. */
 export declare function measureRequestTokens(body: string): number;
-/** Cheap per-message estimate; the body is serialized once per message. */
+/**
+ * Cheap per-message estimate; the body is serialized once per message.
+ *
+ * Assistant reasoning is stored in the session but the provider lowering drops
+ * it before the request (`FREE_PI_TRACE` shows `reasoningChars: 0`). Counting it
+ * made the diet and the compaction trim believe a prompt was 30-50k tokens
+ * larger than the wire, so they pruned or dropped turns the model never saw.
+ */
 export declare function estimateMessageTokens(message: unknown): number;
 /**
  * Keeps the newest part of a message list inside `budget` tokens, cutting only

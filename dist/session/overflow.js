@@ -85,10 +85,29 @@ export function profileRequest(body) {
 export function measureRequestTokens(body) {
     return profileRequest(body).tokens;
 }
-/** Cheap per-message estimate; the body is serialized once per message. */
+/** Part types OpenCode keeps in the session but does not send to free-pi. */
+const UNSENT_PART_TYPES = new Set(["reasoning", "thinking"]);
+/**
+ * Cheap per-message estimate; the body is serialized once per message.
+ *
+ * Assistant reasoning is stored in the session but the provider lowering drops
+ * it before the request (`FREE_PI_TRACE` shows `reasoningChars: 0`). Counting it
+ * made the diet and the compaction trim believe a prompt was 30-50k tokens
+ * larger than the wire, so they pruned or dropped turns the model never saw.
+ */
 export function estimateMessageTokens(message) {
     try {
-        return Math.ceil(JSON.stringify(message).length / 4);
+        const full = JSON.stringify(message).length;
+        const content = message?.content;
+        if (!Array.isArray(content))
+            return Math.ceil(full / 4);
+        let unsent = 0;
+        for (const part of content) {
+            if (UNSENT_PART_TYPES.has(part?.type ?? "")) {
+                unsent += JSON.stringify(part).length + 1;
+            }
+        }
+        return Math.ceil(Math.max(0, full - unsent) / 4);
     }
     catch {
         return 0;

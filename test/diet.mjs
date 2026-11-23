@@ -171,4 +171,25 @@ const stubbed = (text) =>
   assert.ok(stubbed(part.state.content[0].text));
 }
 
+// Stored reasoning is not sent to free-pi, so it must not count toward the
+// budget or make the diet prune results the model still receives.
+{
+  const withReasoning = {
+    role: "assistant",
+    content: [
+      { type: "reasoning", text: "r".repeat(80_000) },
+      { type: "text", text: "listo" },
+    ],
+  };
+  const withoutReasoning = {
+    role: "assistant",
+    content: [{ type: "text", text: "listo" }],
+  };
+  assert.equal(
+    estimateMessageTokens(withReasoning),
+    estimateMessageTokens(withoutReasoning),
+    "reasoning is not billed on the wire",
+  );
+}
+
 console.log("diet: ok");
