@@ -680,6 +680,11 @@ try {
     ),
     "compaction requests do not carry the primary turn reminder",
   );
+  assert.equal(
+    deps.state.dirtySessions.has("ses_parent"),
+    true,
+    "a compaction marks the wire session for rotation",
+  );
   const afterCompaction = await invoke("model.request", "free-pi", {
     sessionID: "ses_parent",
     agent: "build",
@@ -688,6 +693,11 @@ try {
     headers: {},
   });
   assert.equal(afterCompaction.headers["x-freepi-compacted"], "v1:3");
+  assert.equal(
+    deps.state.dirtySessions.has("ses_parent"),
+    false,
+    "the turn after a compaction rotates its wire id instead of taking a 429",
+  );
 
   // Compaction reuses the current turn but opts out of ad context.
   const compactionRequest = await invoke("model.request", "free-pi", {

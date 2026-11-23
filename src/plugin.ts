@@ -34,6 +34,8 @@ import { fetchModelsRegistry } from "./catalog/registry.js";
 import { applyProvider } from "./catalog/v2.js";
 import {
   CATALOG_RECOVERY_DELAYS_MS,
+  CATALOG_RECOVERY_INTERVAL_MS,
+  CATALOG_RECOVERY_LOG_EVERY,
   DEFENSE_PROVIDER_ID,
   PROVIDER_ID,
 } from "./constants.js";
@@ -337,15 +339,25 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
       abort.signal.addEventListener("abort", finish, { once: true });
     });
   const catalogRecovery = (async () => {
-    // Only a missing catalog needs recovery; an empty model list after access
-    // filtering means the account cannot use these models, not a timeout.
-    if (currentCatalog) return;
-    for (const delay of CATALOG_RECOVERY_DELAYS_MS) {
-      if (abort.signal.aborted || currentMain.length > 0) return;
+    // Keep going while the provider has no models: a failed cold start must heal
+    // even if the outage outlasts the initial burst. An empty list because the
+    // account filter removed everything is also temporary (quota refreshes).
+    let attempt = 0;
+    while (!abort.signal.aborted && currentMain.length === 0) {
+      const delay =
+        CATALOG_RECOVERY_DELAYS_MS[attempt] ?? CATALOG_RECOVERY_INTERVAL_MS;
+      attempt += 1;
       await waitForAbort(delay);
       if (abort.signal.aborted || currentMain.length > 0) return;
       const next = await fetchCatalog(deps).catch(() => undefined);
-      if (!next) continue;
+      if (!next) {
+        if (attempt % CATALOG_RECOVERY_LOG_EVERY === 0) {
+          log.warn("free-pi catalog is still unreachable; models stay unavailable", {
+            attempts: attempt,
+          });
+        }
+        continue;
+      }
       const parts = partitionModels(next);
       const accessNow = accountAccess(state.quotaCache?.me);
       const nextMain = filterAccessibleModels(parts.main, accessNow);
@@ -366,10 +378,6 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
       );
       return;
     }
-    log.warn(
-      "free-pi catalog stayed unreachable; free-pi models remain unavailable",
-      { attempts: CATALOG_RECOVERY_DELAYS_MS.length },
-    );
   })();
   void catalogRecovery.catch(() => undefined);
 

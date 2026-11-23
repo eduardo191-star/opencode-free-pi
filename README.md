@@ -208,7 +208,10 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   petición se reintenta una vez de inmediato y, si aun así falla, el plugin
   vuelve a pedir el catálogo en segundo plano (2 s, 5 s, 10 s, 20 s, 30 s y 60 s)
   y, en cuanto lo obtiene, registra los modelos y recarga proveedor y modelo en
-  caliente. No hace falta reiniciar OpenCode ni elegir otra carpeta.
+  caliente. Si la caída dura más que esa ráfaga, sigue reintentando cada 60 s
+  mientras no haya ningún modelo registrado, así que un arranque sin red (VPN
+  caída, DPI bloqueando el gateway) se recupera solo cuando vuelve la conexión.
+  No hace falta reiniciar OpenCode ni elegir otra carpeta.
 - **Aislamiento por proveedor**: todo lo que añade el plugin —herramientas,
   cabeceras, anuncios, reglas de prompt, compactación, reintentos, topes de
   tokens y ajustes— se aplica solo a `free-pi` y `free-pi-defense`. Los demás
@@ -424,6 +427,9 @@ puede completarse el hook de reintento rota el id para los siguientes pasos. Un
 turno que se aborta o falla a mitad de stream marca su `x-session-id` como sucio:
 la siguiente petición arranca directamente con un id nuevo y libera el anterior,
 de modo que la sesión continúa sin interrupciones y sin pasar por un reintento.
+Una compactación también deja el id marcado: el resumen y el turno siguiente se
+solapan en el gateway y ese solape producía un 429 `concurrent` y un replay en
+cada compactación, así que el turno posterior ya sale con un id nuevo.
 
 Los fallos de transporte (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, DNS
 temporal, `socket hang up`) no son límites de cuenta: el plugin los reintenta con

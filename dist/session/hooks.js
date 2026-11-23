@@ -244,6 +244,12 @@ async function applyGeneration(deps, event, kind) {
         // OpenCode sends the messages it is folding into the summary, which is the
         // same set pi reports through `session_before_compact`.
         recordCompaction(deps, event.sessionID, Array.isArray(event.messages) ? event.messages.length : 0);
+        // The compaction request and the next turn overlap: the runner starts the
+        // next step while the gateway still holds this wire session's request slot,
+        // which costs a `429 concurrent` and a full replay every time. Rotating the
+        // id for the next request avoids that round trip without changing what the
+        // model receives (the whole compacted history goes out every time).
+        markWireSessionDirty(deps, event.sessionID);
     }
     else if (kind === "primary") {
         // The free models tend to skip planning and claim work they did not do;

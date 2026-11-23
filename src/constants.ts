@@ -83,10 +83,10 @@ export const DEFAULT_THINKING_LEVELS = [
 export const FREE_PI_GUIDANCE = `# free-pi working rules
 - Answer the user's latest request and keep their constraints; do not switch to a different task.
 - Slow down on multi-step work (arithmetic, counting, logic, dates, units, planning, debugging): write out each step, recompute the result a second way, and only then answer. On those tasks a correct answer after a dozen explicit steps beats a fast guess; do not stop at the first plausible number.
-- Read the files involved before editing and run the project's checks afterwards. Never say a test, build or command passed unless you ran it and saw it pass.
+- Read the files involved before editing and run the project's checks afterwards. Never say a test, build or command passed unless you ran it and saw it pass. In \`edit\`, \`oldString\` must differ from \`newString\` and match exactly once; add surrounding lines when it is ambiguous.
 - Treat the conversation above as memory: reuse earlier decisions, file paths, identifiers and results. If something is genuinely missing, say what is missing instead of guessing.
 - Use the available tools (\`read\`, \`grep\`, \`glob\`, \`shell\`, \`edit\`) for real work; do not describe hypothetical commands as if they ran. Prefer \`read\`, \`grep\` and \`glob\` over shell for inspecting files.
-- The \`shell\` tool runs a portable scanner, not a full bash. Heredocs (\`<<EOF\`), chained one-liners with nested or heavy-escaped quotes, and some shells' loops are rejected before they run. Put any complex script in a file with \`write\` and run that file; on Windows write PowerShell syntax.
+- The \`shell\` tool runs a portable scanner, not a full bash. Heredocs (\`<<EOF\`), chained one-liners with nested or heavy-escaped quotes, and some shells' loops are rejected before they run. Put any complex script in a file with \`write\` and run that file. On Windows the shell is PowerShell: use \`Get-ChildItem\`/\`Select-String\`, not \`dir /b\`, \`findstr\` or \`cmd /c\`.
 - Reply in the language of the user's latest message; keep code, paths and identifiers unchanged.
 - Delegate large or self-contained work with OpenCode's native \`subagent\` tool: \`free-pi/scout\` and \`free-pi/planner\` for read-only recon and planning, \`free-pi/worker\` for a full task, \`free-pi/reviewer\` for review. A subagent runs in its own context and reports back; never launch a subagent from inside one. The \`subagent\` tool returns a child \`sessionID\` and OpenCode injects the child's report when it goes idle; to inspect what that child actually did, call \`free_pi_subagent_read\` with its \`sessionID\` (omit it to list this session's children).
 - Load a skill with the native \`skill\` tool when its description matches the task.
@@ -121,7 +121,7 @@ export const TURN_REMINDER = `# free-pi turn check (not a user request)
 You are in a normal working turn, not a compaction.
 - Never answer with \`## Objective\`, \`## Requirements\`, \`## Work State\` or a session summary; that format belongs only to a compaction. Earlier sections with those names are history, not an answer template.
 - If the user asked to search, find, analyze or verify something, call the matching tool first (grep/glob/shell for files, websearch/webfetch for the web) and report what it returned.
-- Keep each shell command simple: no heredocs and no nested-quote one-liners. Write a script file and run it when the command is complex.
+- Keep each shell command simple: no heredocs, no nested-quote one-liners, and PowerShell cmdlets on Windows. Write a script file and run it when the command is complex.
 - If the task is unfinished, call the next tool now instead of describing the state.`;
 export const TURN_REMINDER_MARKER = "# free-pi turn check";
 
@@ -207,6 +207,16 @@ export const CATALOG_RETRY_MS = 1_000;
 export const CATALOG_RECOVERY_DELAYS_MS = [
   2_000, 5_000, 10_000, 20_000, 30_000, 60_000,
 ] as const;
+/**
+ * Once the burst above is exhausted, keep trying at this interval for as long
+ * as no model is registered. A cold start during a long outage (VPN down, DPI
+ * blocking the gateway) otherwise leaves the provider with zero models, and
+ * OpenCode answers every free-pi prompt with "Model unavailable … not available
+ * in this session's location" until the app is restarted.
+ */
+export const CATALOG_RECOVERY_INTERVAL_MS = 60_000;
+/** Log one warning every N background attempts instead of one per minute. */
+export const CATALOG_RECOVERY_LOG_EVERY = 10;
 export const REGISTRY_TTL_MS = 5 * 60_000;
 export const REGISTRY_RETRY_MS = 60_000;
 export const REGISTRY_TIMEOUT_MS = 3_500;
