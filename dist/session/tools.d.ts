@@ -13,7 +13,7 @@ import type { Deps } from "../deps.js";
  * served by another provider (see `hideFreePiTools`) and refuses to run them
  * outside a free-pi session.
  */
-export declare const FREE_PI_TOOL_NAMES: readonly ["look_at_image", "free_pi_usage", "web_search", "docs_lookup", "generate_image"];
+export declare const FREE_PI_TOOL_NAMES: readonly ["look_at_image", "free_pi_usage", "free_pi_subagent_read", "web_search", "docs_lookup", "generate_image"];
 type ToolResultLike = {
     metadata?: Record<string, unknown>;
 };

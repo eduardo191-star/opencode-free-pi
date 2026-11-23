@@ -70,7 +70,7 @@ export const FREE_PI_GUIDANCE = `# free-pi working rules
 - Read the files involved before editing and run the project's checks afterwards. Never say a test, build or command passed unless you ran it and saw it pass.
 - Treat the conversation above as memory: reuse earlier decisions, file paths, identifiers and results. If something is genuinely missing, say what is missing instead of guessing.
 - Use the available tools (read, grep, glob, bash, edit) for real work; do not describe hypothetical commands as if they ran.
-- Delegate large or self-contained work with OpenCode's native \`subagent\` tool: \`free-pi/scout\` and \`free-pi/planner\` for read-only recon and planning, \`free-pi/worker\` for a full task, \`free-pi/reviewer\` for review. A subagent runs in its own context and reports back; never launch a subagent from inside one.
+- Delegate large or self-contained work with OpenCode's native \`subagent\` tool: \`free-pi/scout\` and \`free-pi/planner\` for read-only recon and planning, \`free-pi/worker\` for a full task, \`free-pi/reviewer\` for review. A subagent runs in its own context and reports back; never launch a subagent from inside one. The \`subagent\` tool returns a child \`sessionID\` and OpenCode injects the child's report when it goes idle; to inspect what that child actually did, call \`free_pi_subagent_read\` with its \`sessionID\` (omit it to list this session's children).
 - Load a skill with the native \`skill\` tool when its description matches the task.
 - \`AGENTS.md\` and the files listed under \`instructions\` are the project's memory. Follow them; do not restate or replace them.
 - Never claim to have compacted, summarized or cleared context unless that actually happened.
@@ -94,6 +94,15 @@ export const CHUNK_TIMEOUT_MS = 300_000;
 export const RETRY_MAX_RETRIES = 3;
 export const RETRY_BASE_DELAY_MS = 2_000;
 export const RETRY_MAX_DELAY_MS = 60_000;
+/**
+ * Transport failures (a refused or dropped connection, DNS blips) usually
+ * clear on their own. OpenCode stops after its own retries, which can end a
+ * turn during a brief local network or service restart, so the plugin gives
+ * them a longer budget before giving up.
+ */
+export const TRANSPORT_RETRY_MAX = 5;
+export const TRANSPORT_RETRY_BASE_MS = 2_000;
+export const TRANSPORT_RETRY_MAX_DELAY_MS = 30_000;
 /**
  * free-pi allows one in-flight request per `x-session-id` and answers a second
  * one with `429 concurrent`. OpenCode does not retry that itself, and a slot

@@ -19,6 +19,7 @@ import { cancelAllFinalizeTimers } from "./session/track.js";
 import { createRuntimeState } from "./state.js";
 import { registerGenerateImageTool } from "./tools/image-generate.js";
 import { registerUsageTool } from "./tools/usage.js";
+import { registerSubagentTool } from "./tools/subagent.js";
 import { registerVisionTool } from "./tools/vision.js";
 import { registerWebTools } from "./tools/web.js";
 import { settle } from "./utils/async.js";
@@ -46,6 +47,38 @@ async function setup(ctx) {
         readContext: async (sessionID) => {
             try {
                 return await ctx.session.context({ sessionID });
+            }
+            catch {
+                return [];
+            }
+        },
+        readSession: async (sessionID) => {
+            try {
+                const info = await ctx.session.get({ sessionID });
+                return {
+                    id: info.id,
+                    parentID: info.parentID,
+                    title: info.title,
+                    agent: info.agent,
+                    outcome: info.outcome,
+                    updated: info.time?.updated,
+                };
+            }
+            catch {
+                return undefined;
+            }
+        },
+        listSubagentSessions: async (parentID) => {
+            try {
+                const result = await ctx.session.list({ parentID, limit: 50 });
+                return (result.data ?? []).map((info) => ({
+                    id: info.id,
+                    parentID: info.parentID,
+                    title: info.title,
+                    agent: info.agent,
+                    outcome: info.outcome,
+                    updated: info.time?.updated,
+                }));
             }
             catch {
                 return [];
@@ -198,6 +231,10 @@ async function setup(ctx) {
     const tools = [
         { name: "look_at_image", register: () => registerVisionTool(ctx, deps) },
         { name: "free_pi_usage", register: () => registerUsageTool(ctx, deps) },
+        {
+            name: "free_pi_subagent_read",
+            register: () => registerSubagentTool(ctx, deps),
+        },
         { name: "web", register: () => registerWebTools(ctx, deps) },
         { name: "generate_image", register: () => registerGenerateImageTool(ctx, deps) },
     ];

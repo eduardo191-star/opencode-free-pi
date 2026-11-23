@@ -238,6 +238,7 @@ demás modelos no las ven ni pueden ejecutarlas.
 | `web_search`     | Busca en la web y devuelve título, URL, fecha y texto de cada resultado. |
 | `docs_lookup`    | Consulta documentación actual de una librería o framework.               |
 | `free_pi_usage`  | Muestra cuota restante, créditos, tokens y tier de la cuenta.            |
+| `free_pi_subagent_read` | Lee la transcripción de una sesión hija: prompts, herramientas y respuesta. |
 
 `generate_image` acepta `prompt`, `aspect_ratio` (`1:1`, `16:9`, `9:16`, `4:3`,
 `3:2`) y un `name` opcional para el archivo. Rechaza tipos que no sean PNG,
@@ -256,6 +257,15 @@ no reutiliza respuestas ni oculta llamadas repetidas.
 con su hora de recarga en ET, los créditos premium o de referidos y los tokens
 de hoy y de por vida. Si el servidor asigna el carril lento, incluye el aviso
 del CLI.
+
+`free_pi_subagent_read` recibe el `sessionID` que devuelve la herramienta
+`subagent` y devuelve la conversación de esa sesión hija: el prompt recibido,
+cada llamada a herramienta con su entrada y su resultado, y el texto final del
+subagente. Antes de leer comprueba con `session.get` que `parentID` sea la sesión
+que llama, así que no puede abrir sesiones ajenas. Sin `sessionID` lista las
+sesiones hijas de la sesión actual con su agente y su resultado. El transcript se
+mantiene dentro de un presupuesto de caracteres (`maxChars`, 60k por defecto) y,
+si no cabe, conserva los turnos más recientes y lo indica.
 
 La compra de créditos y la guía de free-pi ya no se exponen como herramientas:
 se resuelven en el dashboard y la documentación de free-pi, sin gastar cuota ni
@@ -292,7 +302,10 @@ La herramienta `subagent` es la de OpenCode y está disponible para **cualquier
 modelo**, no solo para los agentes `free-pi/*`: también puede lanzarlos un
 modelo de otro proveedor configurado en OpenCode. El plugin garantiza además que
 todos los modelos gratuitos anuncien soporte de tools, de modo que el runner
-nunca oculte `subagent` por una capacidad incorrecta de models.dev.
+nunca oculte `subagent` por una capacidad incorrecta de models.dev. Cuando el
+hijo termina, OpenCode inyecta su informe en la sesión padre; para ver lo que
+realmente ejecutó, el padre llama a `free_pi_subagent_read` con el `sessionID`
+del hijo.
 
 El plugin solo reescribe estos archivos si conservan su marca de gestión; si el
 usuario edita o reemplaza uno, se respeta tal cual.
@@ -387,6 +400,13 @@ puede completarse el hook de reintento rota el id para los siguientes pasos. Un
 turno que se aborta o falla a mitad de stream marca su `x-session-id` como sucio:
 la siguiente petición arranca directamente con un id nuevo y libera el anterior,
 de modo que la sesión continúa sin interrupciones y sin pasar por un reintento.
+
+Los fallos de transporte (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, DNS
+temporal, `socket hang up`) no son límites de cuenta: el plugin los reintenta con
+espera exponencial hasta cinco veces más (2 s, 4 s, 8 s, 16 s y 30 s) y marca el
+`x-session-id` como sucio para que el siguiente intento use una conexión y un
+slot nuevos. Así un corte breve de red, del router o del servicio local de
+OpenCode no termina el turno en el segundo intento.
 
 ## Rutas por plataforma
 

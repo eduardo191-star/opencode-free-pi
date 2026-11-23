@@ -20,6 +20,9 @@ const { formatWebResults, registerWebTools } = await import(
 const { registerGenerateImageTool, slug } = await import(
   "../dist/tools/image-generate.js"
 );
+const { formatTranscript, registerSubagentTool } = await import(
+  "../dist/tools/subagent.js"
+);
 
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -100,6 +103,50 @@ const log = {
   error() {},
 };
 
+const childMessages = [
+  {
+    id: "m1",
+    type: "user",
+    text: "List the files in src and report the count.",
+  },
+  {
+    id: "m2",
+    type: "assistant",
+    agent: "free-pi/scout",
+    finish: "tool-calls",
+    content: [
+      { type: "reasoning", text: "hidden" },
+      {
+        type: "tool",
+        name: "glob",
+        state: {
+          status: "completed",
+          input: { pattern: "src/**/*.ts" },
+          content: [{ type: "text", text: "src/a.ts\nsrc/b.ts" }],
+        },
+      },
+      { type: "text", text: "There are two TypeScript files." },
+    ],
+  },
+];
+const sessions = new Map([
+  [
+    "child1",
+    {
+      id: "child1",
+      parentID: "s1",
+      title: "Count files",
+      agent: "free-pi/scout",
+      outcome: "succeeded",
+      updated: Date.now(),
+    },
+  ],
+  [
+    "stranger",
+    { id: "stranger", parentID: "someone-else", title: "Not a child" },
+  ],
+]);
+
 const deps = {
   state: createRuntimeState(),
   log,
@@ -108,7 +155,11 @@ const deps = {
     key: "test-token",
     metadata: { expires: String(Date.now() + 3_600_000) },
   }),
-  readContext: async () => [],
+  readContext: async (sessionID) =>
+    sessionID === "child1" ? childMessages : [],
+  readSession: async (sessionID) => sessions.get(sessionID),
+  listSubagentSessions: async (parentID) =>
+    [...sessions.values()].filter((session) => session.parentID === parentID),
 };
 deps.state.freePiSessions.add("s1");
 
@@ -130,6 +181,7 @@ const ctx = {
 await registerUsageTool(ctx, deps);
 await registerWebTools(ctx, deps);
 await registerGenerateImageTool(ctx, deps);
+await registerSubagentTool(ctx, deps);
 
 const signal = new AbortController().signal;
 const freeContext = { sessionID: "s1", signal };
@@ -145,6 +197,7 @@ assert.deepEqual(
   [...tools.keys()].sort(),
   [
     "docs_lookup",
+    "free_pi_subagent_read",
     "free_pi_usage",
     "generate_image",
     "web_search",
@@ -154,6 +207,7 @@ assert.deepEqual(
 // Every tool is gated to free-pi sessions.
 for (const [name, input] of [
   ["free_pi_usage", {}],
+  ["free_pi_subagent_read", { sessionID: "child1" }],
   ["web_search", { query: "vite" }],
   ["docs_lookup", { library: "next.js", query: "matcher" }],
   ["generate_image", { prompt: "a cat" }],
@@ -170,6 +224,48 @@ assert.match(usage.content[0].text, /3,400 \/ 5,000 credits left today/);
 assert.match(usage.content[0].text, /today tokens: 1234 prompt \/ 567 completion/);
 assert.doesNotMatch(usage.content[0].text, /Buy credits:/);
 assert.doesNotMatch(usage.content[0].text, /low credits:/);
+
+// The parent can read what a child subagent actually ran and quote its answer.
+const child = await call("free_pi_subagent_read", { sessionID: "child1" });
+assert.equal(child.metadata.ok, true);
+assert.match(child.content[0].text, /Subagent session child1 - Count files/);
+assert.match(child.content[0].text, /\[user\][\s\S]*List the files in src/);
+assert.match(child.content[0].text, /\[tool glob\] completed/);
+assert.match(child.content[0].text, /"pattern": "src\/\*\*\/\*\.ts"/);
+assert.match(child.content[0].text, /src\/a\.ts/);
+assert.match(child.content[0].text, /There are two TypeScript files\./);
+assert.doesNotMatch(child.content[0].text, /hidden/);
+assert.equal(child.metadata.agent, "free-pi/scout");
+assert.equal(child.metadata.outcome, "succeeded");
+assert.equal(child.metadata.messages, 2);
+
+// Another session's transcript is refused, even with a valid id.
+const stranger = await call("free_pi_subagent_read", { sessionID: "stranger" });
+assert.equal(stranger.metadata.ok, false);
+assert.match(stranger.content[0].text, /not a subagent of this session/);
+const missing = await call("free_pi_subagent_read", { sessionID: "nope" });
+assert.equal(missing.metadata.ok, false);
+assert.match(missing.content[0].text, /No OpenCode session with id nope/);
+
+// Without an id the tool lists this session's children, never other sessions.
+const listing = await call("free_pi_subagent_read", {});
+assert.equal(listing.metadata.ok, true);
+assert.equal(listing.metadata.children, 1);
+assert.match(listing.content[0].text, /child1 - Count files/);
+assert.doesNotMatch(listing.content[0].text, /stranger/);
+
+// Long transcripts keep the newest turns and say what was dropped.
+const long = formatTranscript(
+  [
+    { type: "user", text: "a".repeat(4_000) },
+    { type: "user", text: "b".repeat(4_000) },
+    { type: "assistant", content: [{ type: "text", text: "final answer" }] },
+  ],
+  2_500,
+);
+assert.equal(long.truncated, true);
+assert.match(long.text, /older transcript block/);
+assert.match(long.text, /final answer/);
 
 // Low allowance warns once and points at the credit page.
 const lowUsage = formatUsage({

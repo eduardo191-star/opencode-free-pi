@@ -33,6 +33,7 @@ const MAX_STARTED = 200;
 export const FREE_PI_TOOL_NAMES = [
   "look_at_image",
   "free_pi_usage",
+  "free_pi_subagent_read",
   "web_search",
   "docs_lookup",
   "generate_image",

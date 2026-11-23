@@ -290,3 +290,14 @@ export type SessionMessageInfo = {
     [key: string]: unknown;
 };
 export type ReadContext = (sessionID: string) => Promise<readonly SessionMessageInfo[]>;
+/** Minimal view of an OpenCode V2 session header. */
+export type SubagentSessionInfo = {
+    id: string;
+    parentID?: string;
+    title?: string;
+    agent?: string;
+    outcome?: string;
+    updated?: number;
+};
+export type ReadSessionInfo = (sessionID: string) => Promise<SubagentSessionInfo | undefined>;
+export type ListSubagentSessions = (parentID: string) => Promise<readonly SubagentSessionInfo[]>;

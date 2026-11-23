@@ -39,6 +39,9 @@ it.
 ## Tools
 - \`free_pi_usage\` shows today's remaining allowance, credits, token counts and
   the account tier. Read-only.
+- \`free_pi_subagent_read\` reads the transcript of a child session started with
+  the \`subagent\` tool: its prompts, every tool call with input and result, and
+  its final answer. Read-only; omit \`sessionID\` to list this session's children.
 - \`look_at_image\` asks a vision model about a PNG, JPEG or WebP inside the
   project. Use it when the current model takes text only, or when the image is a
   file on disk and you want a targeted answer instead of attaching it.
@@ -64,7 +67,10 @@ Use OpenCode's native subagent tool with the agents this plugin installs:
 Subagents inherit the free-pi model, share the same daily allowance, and run as
 child sessions in the background. Keep large exploration in a subagent so it
 does not fill your own context. Use OpenCode's agent picker or the \`subagent\`
-tool; do not try to launch them through shell commands.
+tool; do not try to launch them through shell commands. The \`subagent\` tool
+returns the child \`sessionID\` and OpenCode injects the child's report when it
+goes idle; call \`free_pi_subagent_read\` with that id to see what the child ran
+and why its answer says what it says.
 
 ## Memory and sessions
 

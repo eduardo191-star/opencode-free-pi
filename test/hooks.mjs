@@ -688,6 +688,43 @@ try {
   });
   assert.deepEqual(notRetryable.decision, { retry: false });
 
+  // A refused or dropped connection is retried beyond OpenCode's own budget,
+  // because a brief network or service outage is not a provider limit. The
+  // wire session id is marked dirty so the next attempt gets a fresh slot.
+  const refused = await invoke("retry", "free-pi", {
+    sessionID: "ses_refused",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: {
+      type: "provider.transport",
+      message:
+        "ECONNREFUSED: Unable to connect. Is the computer able to access the url?",
+    },
+    attempt: 2,
+    decision: { retry: false },
+  });
+  assert.deepEqual(refused.decision, { retry: true, delay: 2_000 });
+  assert.equal(deps.state.dirtySessions.has("ses_refused"), true);
+  const lateRetry = await invoke("retry", "free-pi", {
+    sessionID: "ses_refused",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: { type: "provider.transport", message: "socket hang up" },
+    attempt: 5,
+    decision: { retry: false },
+  });
+  assert.equal(lateRetry.decision.retry, true);
+  assert.equal(lateRetry.decision.delay, 16_000);
+  const refusedOut = await invoke("retry", "free-pi", {
+    sessionID: "ses_refused",
+    agent: "build",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    error: { type: "provider.transport", message: "ECONNREFUSED" },
+    attempt: 7,
+    decision: { retry: true },
+  });
+  assert.deepEqual(refusedOut.decision, { retry: false });
+
   // `concurrent` (429, one request at a time) is retried: the plugin rotates
   // the wire session id and releases the old one so a leaked per-session lock
   // in the server cannot fail the turn forever.
@@ -1161,7 +1198,8 @@ try {
     (entry) =>
       !/compact loop stopped/i.test(entry.message) &&
       !/lowering the advertised window/i.test(entry.message) &&
-      !/trimmed the compaction request/i.test(entry.message),
+      !/trimmed the compaction request/i.test(entry.message) &&
+      !/could not be reached; retrying/i.test(entry.message),
   );
   assert.equal(unexpected.length, 0, JSON.stringify(warnings));
   console.log("ok");

@@ -23,6 +23,9 @@ import {
   RETRY_MAX_DELAY_MS,
   RETRY_MAX_RETRIES,
   SUBAGENT_HEADER,
+  TRANSPORT_RETRY_BASE_MS,
+  TRANSPORT_RETRY_MAX,
+  TRANSPORT_RETRY_MAX_DELAY_MS,
 } from "../constants.js";
 import {
   currentLiveLimits,
@@ -333,6 +336,22 @@ const TERMINAL_RETRY_CODES = new Set([
 const TERMINAL_RETRY_PATTERN =
   /free usage limit|monthly usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing|subscription_sharing_usage_limit_exceeded/i;
 
+/**
+ * A request that never reached the gateway. `provider.transport` covers the
+ * typed path, while the pattern catches bare fetch errors. These are worth
+ * retrying beyond the usual budget: a brief offline moment or a background
+ * service restart is not a provider limit.
+ */
+const TRANSPORT_RETRY_PATTERN =
+  /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|EAI_AGAIN|EPIPE|socket hang up|fetch failed|Unable to connect|connection (?:refused|reset)/i;
+
+function isTransportFailure(error: any): boolean {
+  const type = typeof error?.type === "string" ? error.type : "";
+  if (/transport|network|connection/i.test(type)) return true;
+  const message = `${error?.message ?? ""}\n${error?.cause?.message ?? ""}`;
+  return TRANSPORT_RETRY_PATTERN.test(message);
+}
+
 function isTerminalFailure(error: any): boolean {
   if (
     error?.type === "aborted" ||
@@ -390,6 +409,30 @@ function applyRetryPolicy(deps: Deps, event: any): void {
     // instead of running into the stale per-session lock.
     markWireSessionDirty(deps, event.sessionID);
     event.decision = { retry: false };
+    return;
+  }
+  if (isTransportFailure(event.error)) {
+    if (event.attempt > TRANSPORT_RETRY_MAX + 1) {
+      event.decision = { retry: false };
+      return;
+    }
+    // A connection that dropped mid-turn can leave the gateway's per-session
+    // slot marked busy, so the next attempt should not reuse the wire id.
+    markWireSessionDirty(deps, event.sessionID);
+    const attempt = Math.max(1, event.attempt - 1);
+    event.decision = {
+      retry: true,
+      delay: Math.min(
+        TRANSPORT_RETRY_BASE_MS * 2 ** (attempt - 1),
+        TRANSPORT_RETRY_MAX_DELAY_MS,
+      ),
+    };
+    deps.log.warn("free-pi could not be reached; retrying", {
+      sessionID: event.sessionID,
+      attempt: event.attempt,
+      delay: event.decision.delay,
+      error: typeof event.error?.message === "string" ? event.error.message : undefined,
+    });
     return;
   }
   if (event.attempt > RETRY_MAX_RETRIES + 1) {
