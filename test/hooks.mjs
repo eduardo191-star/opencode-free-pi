@@ -324,6 +324,65 @@ try {
   );
   assert.equal(adContext.user, "hello from the user");
 
+  // A finished subagent arrives as a synthetic user message. It must not start
+  // a new ad turn or replace the user's prompt with its internal ids.
+  const syntheticTurn = async (syntheticText) => {
+    await invoke("context", "free-pi", {
+      sessionID: "ses_synth",
+      agent: "build",
+      kind: "primary",
+      model: { providerID: "free-pi", id: "hy4-flash" },
+      system: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "real user request" }],
+        },
+        ...(syntheticText
+          ? [
+              {
+                role: "user",
+                content: [{ type: "text", text: syntheticText }],
+              },
+            ]
+          : []),
+      ],
+      options: {},
+    });
+    return invoke("model.request", "free-pi", {
+      sessionID: "ses_synth",
+      agent: "build",
+      kind: "primary",
+      model: { providerID: "free-pi", id: "hy4-flash" },
+      headers: {},
+    });
+  };
+  const beforeResult = await syntheticTurn("");
+  const syntheticCases = [
+    '<subagent sessionID="ses_child" state="completed">done</subagent>',
+    '<shell id="sh_1" state="completed" command="ls">files</shell>',
+    "Instructions from: C:\\repo\\AGENTS.md\n# Rules",
+    "The server restarted while you were working. Continue from where you left off.",
+    "User requested that active blocking work be moved to the background.",
+  ];
+  for (const syntheticText of syntheticCases) {
+    const afterResult = await syntheticTurn(syntheticText);
+    assert.equal(
+      afterResult.headers["x-turn-id"],
+      beforeResult.headers["x-turn-id"],
+      `${syntheticText.slice(0, 20)} does not rotate the ad turn`,
+    );
+    assert.equal(
+      JSON.parse(
+        Buffer.from(afterResult.headers["x-ad-context"], "base64url").toString(
+          "utf8",
+        ),
+      ).user,
+      "real user request",
+      "the ad still describes the user's prompt",
+    );
+  }
+
   // A subagent gets its own ad turn, its own ad request and its own context.
   const adCountBeforeChild = calls.filter((call) =>
     call.url.includes("/ads/next"),

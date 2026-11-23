@@ -14,5 +14,7 @@ export type AdMessage = {
 export declare function latestAssistantText(messages: readonly AdMessage[]): string;
 /** Latest user text from a message list. */
 export declare function latestUserText(messages: readonly AdMessage[]): string;
+/** Number of real user turns; synthetic messages do not start a new one. */
+export declare function countUserTurns(messages: readonly AdMessage[]): number;
 /** Latest user message id from a message list. */
 export declare function latestUserMessageID(messages: readonly AdMessage[]): string | undefined;

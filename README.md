@@ -186,7 +186,12 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   free-pi. El CLI nunca los hace y cada ping gastaría créditos y anuncios.
 - **Timeouts del CLI**: 5 minutos para las cabeceras y para cada trozo de la
   respuesta, los mismos valores que `httpIdleTimeoutMs` de pi.
-- Anuncios e impresiones asociados al turno correcto.
+- Anuncios e impresiones asociados al turno correcto. El contexto del anuncio se
+  construye solo con el último mensaje real del usuario: se ignoran el
+  recordatorio del plugin y los mensajes sintéticos que OpenCode inserta en el
+  mismo turno (resultado de un subagente, salida de un shell en segundo plano,
+  AGENTS.md, reinicio del servidor o respuesta interrumpida), que antes
+  rotaban el anuncio a mitad de turno y enviaban ids internos como contexto.
 - Cada agente y subagente usa su propio `x-session-id`, `x-turn-id` y contexto
   de anuncios; nunca reutiliza los del agente principal.
 - **Cierre de sesión**: free-pi limita la cuenta a 4 sesiones simultáneas. El

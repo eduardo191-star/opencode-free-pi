@@ -57,7 +57,7 @@ export async function rememberReplayBody(
     deps.state.replayBodies.delete(key);
     deps.state.replayBodies.set(key, body);
     trimMap(deps.state.replayBodies, REPLAY_BODY_LIMIT);
-    traceRequestBody(deps, event.sessionID, body);
+    traceRequestBody(deps, event.sessionID, body, request.headers);
   } catch {
     // A non-replayable body simply falls back to the normal retry hook.
   }

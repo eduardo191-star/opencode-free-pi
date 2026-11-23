@@ -1,6 +1,21 @@
 /** Builds and redacts the ad context sent with a user turn. */
 import { AD_CONTEXT_MAX_CHARS, TURN_REMINDER_MARKER } from "../constants.js";
 import { cleanText } from "../utils/text.js";
+/** Start of the synthetic user message OpenCode creates for a finished subagent. */
+const SUBAGENT_RESULT_PREFIX = "<subagent ";
+/**
+ * User-role messages OpenCode injects on its own. They are stored as
+ * `type: "synthetic"` but lowered to `user` on the wire, so the prefix is the
+ * only signal the ad context can use.
+ */
+const SYNTHETIC_USER_PREFIXES = [
+    SUBAGENT_RESULT_PREFIX,
+    "<shell ",
+    "Instructions from: ",
+    "The server restarted while you were working.",
+    "The previous response was interrupted.",
+    "User requested that active blocking work be moved to the background.",
+];
 const AD_SECRET_PATTERNS = [
     [
         "private_key",
@@ -106,19 +121,48 @@ export function latestUserText(messages) {
         const message = messages[index];
         if (roleOf(message) !== "user")
             continue;
-        const text = cleanText(typeof message.text === "string" ? message.text : contentText(message.content));
+        const text = messageText(message);
         // The plugin appends this after the ad turn is resolved; ignore it if the
         // event is reused so the next ad never describes the reminder itself.
-        if (text && !text.startsWith(TURN_REMINDER_MARKER))
+        if (isRealUserTurn(text))
             return text;
     }
     return "";
+}
+function messageText(message) {
+    return cleanText(typeof message.text === "string" ? message.text : contentText(message.content));
+}
+/**
+ * A user-role message that is not the user's own turn.
+ *
+ * OpenCode lowers a finished subagent into a `user` message that starts with
+ * `<subagent sessionID=… state=…>`, and the plugin's own per-turn reminder is
+ * also a `user` message. Treating either as a new turn rotated the ad in the
+ * middle of one user request and sent its internal ids as the ad context.
+ */
+function isRealUserTurn(text) {
+    return (text.length > 0 &&
+        !text.startsWith(TURN_REMINDER_MARKER) &&
+        !SYNTHETIC_USER_PREFIXES.some((prefix) => text.startsWith(prefix)));
+}
+/** Number of real user turns; synthetic messages do not start a new one. */
+export function countUserTurns(messages) {
+    let count = 0;
+    for (const message of messages) {
+        if (roleOf(message) !== "user")
+            continue;
+        if (isRealUserTurn(messageText(message)))
+            count += 1;
+    }
+    return count;
 }
 /** Latest user message id from a message list. */
 export function latestUserMessageID(messages) {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
         if (roleOf(message) !== "user")
+            continue;
+        if (!isRealUserTurn(messageText(message)))
             continue;
         if (typeof message.id === "string" && message.id)
             return message.id;

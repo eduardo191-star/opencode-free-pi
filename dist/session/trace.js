@@ -19,7 +19,7 @@ function textOf(content) {
             : "")
         .join("");
 }
-export function traceRequestBody(deps, sessionID, body) {
+export function traceRequestBody(deps, sessionID, body, headers) {
     if (process.env.FREE_PI_TRACE !== "1")
         return;
     try {
@@ -60,6 +60,10 @@ export function traceRequestBody(deps, sessionID, body) {
             ? parsed.tools.map((tool) => tool?.function?.name ?? "?")
             : [];
         const last = messages.at(-1);
+        const lastRealUser = [...messages]
+            .reverse()
+            .find((message) => message.role === "user" &&
+            !textOf(message.content).startsWith("# free-pi turn check"));
         deps.log.info("free-pi trace request", {
             sessionID,
             model: parsed.model,
@@ -72,9 +76,49 @@ export function traceRequestBody(deps, sessionID, body) {
             toolNames: tools,
             lastRole: last?.role,
             lastStart: textOf(last?.content).slice(0, 80).replace(/\n/g, " "),
+            lastRealUserKeys: lastRealUser ? Object.keys(lastRealUser) : [],
+            lastRealUserSynthetic: lastRealUser?.synthetic ??
+                lastRealUser?.metadata?.source ??
+                null,
+            ...headerTrace(headers),
         });
     }
     catch {
         // A body that is not JSON is not a model request worth tracing.
     }
+}
+/**
+ * Summarises the plugin's headers without leaking the token. The ad context is
+ * base64url JSON, so it is decoded here: if the reminder ever replaced the real
+ * user text, this trace is what proves it.
+ */
+function headerTrace(headers) {
+    if (!headers)
+        return {};
+    const ad = headers.get("x-ad-context");
+    let adUserChars = 0;
+    let adAssistantChars = 0;
+    let adUserStart = "";
+    if (ad && ad !== "none") {
+        try {
+            const payload = JSON.parse(Buffer.from(ad, "base64url").toString("utf8"));
+            adUserChars = payload.user?.length ?? 0;
+            adAssistantChars = payload.assistant?.length ?? 0;
+            adUserStart = (payload.user ?? "").slice(0, 60).replace(/\s+/g, " ");
+        }
+        catch {
+            // An opaque ad context is still worth reporting as present.
+            adUserChars = ad.length;
+        }
+    }
+    const session = headers.get("x-session-id") ?? "";
+    return {
+        xTurnID: headers.get("x-turn-id") ?? "",
+        xSessionSuffix: session.includes("-r") ? session.slice(session.indexOf("-r")) : "",
+        xAdContext: ad === "none" ? "none" : `${adUserChars}u/${adAssistantChars}a`,
+        xAdUserStart: adUserStart,
+        xSubagent: headers.get("x-freepi-subagent") ?? "",
+        xToolMeta: headers.get("x-freepi-tool-meta") ?? "",
+        xCompacted: headers.get("x-freepi-compacted") ?? "",
+    };
 }

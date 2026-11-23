@@ -7,4 +7,4 @@
  * the last message OpenCode sends. It never runs unless the env var is set.
  */
 import type { Deps } from "../deps.js";
-export declare function traceRequestBody(deps: Deps, sessionID: string, body: string): void;
+export declare function traceRequestBody(deps: Deps, sessionID: string, body: string, headers?: Headers): void;
