@@ -11,10 +11,12 @@ const SUBAGENT_RESULT_PREFIX = "<subagent ";
 const SYNTHETIC_USER_PREFIXES = [
     SUBAGENT_RESULT_PREFIX,
     "<shell ",
+    "<image ",
     "Instructions from: ",
     "The server restarted while you were working.",
     "The previous response was interrupted.",
     "User requested that active blocking work be moved to the background.",
+    "Your last response hit the output token limit",
 ];
 const AD_SECRET_PATTERNS = [
     [

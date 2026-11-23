@@ -361,9 +361,11 @@ try {
   const syntheticCases = [
     '<subagent sessionID="ses_child" state="completed">done</subagent>',
     '<shell id="sh_1" state="completed" command="ls">files</shell>',
+    '<image id="image_1" state="error">failed</image>',
     "Instructions from: C:\\repo\\AGENTS.md\n# Rules",
     "The server restarted while you were working. Continue from where you left off.",
     "User requested that active blocking work be moved to the background.",
+    "Your last response hit the output token limit. Continue from there.",
   ];
   for (const syntheticText of syntheticCases) {
     const afterResult = await syntheticTurn(syntheticText);
