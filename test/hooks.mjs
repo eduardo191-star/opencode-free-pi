@@ -1593,6 +1593,65 @@ try {
     assert.equal(foreignEvent.messages, dietMessages);
   }
 
+  // Stored reasoning is not input: it must not travel back to the gateway.
+  {
+    const reasoningMessages = [
+      { role: "user", content: "hola" },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "voy a mirar" }],
+        reasoning_content: "pienso durante un rato",
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "confirmado" },
+          { type: "reasoning", text: "razonamiento guardado" },
+        ],
+        reasoning: "otra forma",
+      },
+      { role: "user", content: "sigue" },
+    ];
+    const reasoningEvent = await invoke("context", "free-pi", {
+      sessionID: "ses_reasoning",
+      agent: "build",
+      kind: "primary",
+      model: { providerID: "free-pi", id: "hy4-flash" },
+      system: [],
+      messages: reasoningMessages,
+      options: {},
+    });
+    for (const message of reasoningEvent.messages) {
+      if (message.role !== "assistant") continue;
+      assert.equal(message.reasoning_content, undefined);
+      assert.equal(message.reasoning, undefined);
+      for (const part of message.content ?? []) {
+        assert.notEqual(part.type, "reasoning");
+        assert.notEqual(part.type, "thinking");
+      }
+    }
+    assert.equal(
+      reasoningMessages[1].reasoning_content,
+      "pienso durante un rato",
+      "the stored messages are copied, not mutated",
+    );
+    assert.ok(
+      infos.some((entry) => /dropped stored reasoning/i.test(entry.message)),
+      "the removal is logged",
+    );
+
+    // Other providers keep their own reasoning.
+    const foreignReasoning = await invokeGlobal("context", {
+      sessionID: "ses_reasoning_foreign",
+      kind: "primary",
+      model: { providerID: "nvidia", id: "gemma" },
+      system: [],
+      messages: reasoningMessages,
+      options: {},
+    });
+    assert.equal(foreignReasoning.messages, reasoningMessages);
+  }
+
   // Usage tracking feeds the quota endpoint.
   deps.state.trackedModels.set("ses_parent", {
     providerID: "free-pi",

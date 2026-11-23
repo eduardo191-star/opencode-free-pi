@@ -155,6 +155,12 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   publica el upstream (32k por defecto, hasta 131k). No se fuerza temperatura ni
   `top_p`: la petición real no los incluye, así que el gateway aplica su propio
   valor. El prompt se envía con rol `system`, no `developer`.
+- **Sin razonamiento reenviado**: OpenCode guarda el pensamiento del modelo en
+  los mensajes del asistente y lo devuelve dentro de `reasoning_content`. La
+  captura con `curl_cffi` mostró que el gateway lo cobra como entrada (mismo
+  prompt y misma respuesta pasaron de 27 a 188 tokens en `glm-5.3-flash`), así
+  que el plugin lo quita antes de enviar. No cambia la respuesta: el modelo ya
+  razonó en su turno y el historial conserva el texto visible.
 - **Límites medidos, no inventados**: `/client-version` solo devuelve id,
   nombre, `free`, `section`, `note`, `stats_id` y `usage_x`; no hay endpoint de
   capacidades ni de ventana. El plugin no se queda en constantes: confirma la

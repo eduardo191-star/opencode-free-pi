@@ -338,6 +338,58 @@ function applyContextDiet(deps: Deps, event: any): void {
   );
 }
 
+/**
+ * Drops the reasoning OpenCode stores and echoes back inside assistant
+ * messages.
+ *
+ * The provider request carries it as `reasoning_content`, but it is not input:
+ * the gateway billed it on some models (a measured glm-5.3-flash request went
+ * from 27 to 188 prompt tokens with the same answer) and the token estimate used
+ * for diet/compaction assumes it is not sent. Removing it keeps the request
+ * identical in behavior and smaller in credits.
+ */
+function stripAssistantReasoning(deps: Deps, event: any): void {
+  const messages = event.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return;
+  let chars = 0;
+  let changed = false;
+  const next = messages.map((message: any) => {
+    if (!message || message.role !== "assistant") return message;
+    let copy: any | undefined;
+    const ensureCopy = () => {
+      if (!copy) copy = { ...message };
+      return copy;
+    };
+    for (const key of ["reasoning_content", "reasoning"] as const) {
+      if (!(key in message)) continue;
+      const value = message[key];
+      if (typeof value === "string") chars += value.length;
+      ensureCopy();
+      delete copy[key];
+      changed = true;
+    }
+    if (Array.isArray(message.content)) {
+      const kept = message.content.filter(
+        (part: any) => part?.type !== "reasoning" && part?.type !== "thinking",
+      );
+      if (kept.length !== message.content.length) {
+        ensureCopy();
+        copy.content = kept;
+        changed = true;
+      }
+    }
+    return copy ?? message;
+  });
+  if (!changed) return;
+  event.messages = next;
+  if (chars > 0) {
+    deps.log.info("free-pi dropped stored reasoning from the request", {
+      sessionID: event.sessionID,
+      chars,
+    });
+  }
+}
+
 /** Caps output tokens, applies the efficiency rule and derives the ad turn. */
 async function applyGeneration(
   deps: Deps,
@@ -354,6 +406,8 @@ async function applyGeneration(
     event.result = localTitle(event.messages);
     return;
   }
+
+  stripAssistantReasoning(deps, event);
 
   const modelID = event.model?.id;
   const limit = deps.state.outputLimits.get(
