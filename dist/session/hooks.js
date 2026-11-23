@@ -58,7 +58,7 @@ function fitCompactionMessages(deps, event, reserveTokens = 0) {
         promptTokens: trimmed.tokens,
     });
 }
-/** Adds a system block once, even when OpenCode reuses the same event. */
+/** Adds a system block once, without mutating the array OpenCode may reuse. */
 function appendSystemGuidance(event, text, marker) {
     const system = Array.isArray(event.system) ? event.system : [];
     if (system.some((part) => part?.type === "text" &&
@@ -66,8 +66,25 @@ function appendSystemGuidance(event, text, marker) {
         part.text.startsWith(marker))) {
         return;
     }
-    system.push({ type: "text", text });
-    event.system = system;
+    // A fresh array: OpenCode reuses the event across hooks, and pushing into the
+    // shared array would carry this block into the next, unrelated request.
+    event.system = [...system, { type: "text", text }];
+}
+/**
+ * Removes guidance blocks that belong to another kind of request. OpenCode can
+ * hand the same event to several hooks, so the compaction rules have to be
+ * stripped before a primary turn: otherwise the model reads them as an order to
+ * answer with a summary and burns the turn writing "## Objective / ## Work
+ * State" instead of doing the work.
+ */
+function stripSystemGuidance(event, markers) {
+    if (!Array.isArray(event.system))
+        return;
+    const kept = event.system.filter((part) => !(part?.type === "text" &&
+        typeof part.text === "string" &&
+        markers.some((marker) => part.text.startsWith(marker))));
+    if (kept.length !== event.system.length)
+        event.system = kept;
 }
 /**
  * Reads the newest turns of the session from the native API. That history is
@@ -211,11 +228,13 @@ async function applyGeneration(deps, event, kind) {
     else if (kind === "primary") {
         // The free models tend to skip planning and claim work they did not do;
         // the CLI gets a much larger agent prompt. This is the compact equivalent.
+        stripSystemGuidance(event, [FREE_PI_COMPACTION_MARKER]);
         appendSystemGuidance(event, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER);
         applyContextDiet(deps, event);
         appendCarriedWindow(deps, event);
     }
     else {
+        stripSystemGuidance(event, [FREE_PI_COMPACTION_MARKER]);
         applyContextDiet(deps, event);
     }
     const agent = event.agent;

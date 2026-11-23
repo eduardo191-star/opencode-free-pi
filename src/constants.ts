@@ -90,6 +90,7 @@ export const FREE_PI_GUIDANCE = `# free-pi working rules
 - Load a skill with the native \`skill\` tool when its description matches the task.
 - \`AGENTS.md\` and the files listed under \`instructions\` are the project's memory. Follow them; do not restate or replace them.
 - Never claim to have compacted, summarized or cleared context unless that actually happened.
+- Never answer with a session summary or with \`## Objective\` / \`## Work State\` blocks; that format belongs to compaction. If the work is unfinished, take the next concrete action instead of describing the state.
 - Continue until the request is finished, then report concisely what changed and what you verified.`;
 export const FREE_PI_GUIDANCE_MARKER = "# free-pi working rules";
 

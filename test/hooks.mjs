@@ -1233,6 +1233,56 @@ try {
         "the window is not carried twice",
       );
 
+      // OpenCode can hand the same event to the compaction hook and then to the
+      // primary one. The summary rules must not survive: the model would read
+      // them as an order to answer with "## Objective / ## Work State" and burn
+      // the turn writing a checkpoint instead of doing the work.
+      deps.readContext = async () => [];
+      const reuseEvent = {
+        sessionID: "ses_reuse",
+        agent: "build",
+        kind: "compaction",
+        model: { providerID: "free-pi", id: "hy4-flash" },
+        system: [{ type: "text", text: "OpenCode system prompt" }],
+        messages: [
+          {
+            id: "m_reuse",
+            role: "user",
+            content: [{ type: "text", text: "sigue con el tema oscuro" }],
+          },
+        ],
+        options: {},
+      };
+      const originalSystem = reuseEvent.system;
+      await invoke("compaction", "free-pi", reuseEvent);
+      assert.notEqual(
+        reuseEvent.system,
+        originalSystem,
+        "the system array is replaced instead of mutated in place",
+      );
+      assert.equal(
+        reuseEvent.system.some((part) =>
+          part.text.startsWith(FREE_PI_COMPACTION_MARKER),
+        ),
+        true,
+      );
+      reuseEvent.kind = "primary";
+      await invoke("context", "free-pi", reuseEvent);
+      assert.equal(
+        reuseEvent.system.some((part) =>
+          part.text.startsWith(FREE_PI_COMPACTION_MARKER),
+        ),
+        false,
+        "the compaction rules are stripped from the primary turn",
+      );
+      assert.equal(
+        reuseEvent.system.some((part) =>
+          part.text.startsWith("# free-pi working rules"),
+        ),
+        true,
+        "the working rules are present",
+      );
+
       // A window older than an hour is dropped: the summary is the history by
       // then, and a stale quote would only spend tokens.
       deps.state.recentWindows.set("ses_stale", {
