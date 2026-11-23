@@ -98,6 +98,15 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   porque los modelos gratuitos ignoran las reglas del sistema. Esos turnos
   viajan una sola vez en la primera petición posterior, por si el resumen los
   comprimió de más; caducan a la hora y no se guardan en disco.
+- **Poda de resultados antiguos**: las sesiones largas llegan a prompts de
+  100k–170k tokens y a ese tamaño los modelos gratuitos pierden el centro de la
+  conversación y dejan de seguir las reglas, aunque el gateway acepte la
+  petición. Antes de enviar, el plugin colapsa los resultados de herramientas
+  antiguos (conserva 600 caracteres de cabecera y 240 del final, con un aviso de
+  que se podaron), sin tocar el texto de usuario, las decisiones del asistente
+  ni los mensajes más recientes. El presupuesto es el 40 % de la ventana
+  anunciada (mínimo 24k), así que el prompt vuelve a la zona donde el modelo
+  atiende.
 - **Sin bucles de compactación**: si el servidor rechaza como «demasiado
   largo» una petición que cabe de sobra en la ventana (menos de 60k tokens),
   el plugin la reintenta con un `x-session-id` nuevo en vez de compactar. Si
@@ -543,6 +552,7 @@ test/smoke.mjs          prueba de humo del build
 test/registry.mjs       models.dev en vivo y tolerancia a fallos
 test/models.mjs         capacidades, variantes y límites
 test/live.mjs           ventana medida y observaciones del gateway
+test/diet.mjs           poda de resultados de herramientas antiguos
 test/hooks.mjs          hooks de sesión, anuncios, cuota y compactación
 ```
 

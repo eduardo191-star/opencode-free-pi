@@ -17,6 +17,15 @@ export declare const CONTEXT_WINDOW = 200000;
 export declare const MAX_CONTEXT_WINDOW = 1000000;
 export declare const MAX_OUTPUT_TOKENS = 32768;
 /**
+ * Share of the advertised window a primary request may occupy before stale
+ * tool results are collapsed. Long free-pi sessions reach 100k-170k prompts
+ * and the free models then lose the middle of the conversation and stop
+ * following the working rules, even though the gateway still accepts them.
+ */
+export declare const CONTEXT_DIET_SHARE = 0.4;
+/** Below this window the diet is pointless: the request is small anyway. */
+export declare const CONTEXT_DIET_MIN_TOKENS = 24000;
+/**
  * Upper bound for a model that publishes a larger output budget. Reasoning
  * tokens share this budget, so a model that can emit more must not be pinned to
  * the CLI's 32k: a long chain of thought would consume it and leave `content`
@@ -57,7 +66,7 @@ export declare const FREE_PI_GUIDANCE_MARKER = "# free-pi working rules";
  * for terse checkpoints, which is fine for strong models but loses the exact
  * facts the free models need; spell out what must survive the rewrite.
  */
-export declare const FREE_PI_COMPACTION_GUIDANCE = "# free-pi compaction rules\n- Keep every unresolved user requirement and constraint, using their wording when a later agent must act on them.\n- Keep decisions and their reasons, exact file paths and symbols, commands with the observed result, error strings, and work still pending.\n- Preserve details that explain why the current state looks the way it does; the next agent cannot re-read the history this summary replaces.\n- Do not invent progress or results that are not in the conversation.";
+export declare const FREE_PI_COMPACTION_GUIDANCE = "# free-pi compaction rules\n- Keep every unresolved user requirement and constraint, using their wording when a later agent must act on them.\n- For each step in the work state, write the conclusion it proved, not only the file or command: \"read X and confirmed Y\", \"build failed with Z\". A list of actions without their findings makes the next agent repeat the work.\n- Keep decisions and their reasons, exact file paths and symbols, commands with the observed result, error strings, and work still pending.\n- Preserve details that explain why the current state looks the way it does; the next agent cannot re-read the history this summary replaces.\n- Do not invent progress or results that are not in the conversation.";
 export declare const FREE_PI_COMPACTION_MARKER = "# free-pi compaction rules";
 /**
  * OpenCode keeps only the latest exchange beside a summary, so after a

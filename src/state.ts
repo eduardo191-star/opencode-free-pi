@@ -29,6 +29,8 @@ export type RuntimeState = {
   lastQuotaNotice?: string;
   catalogModels: Catalog;
   outputLimits: Map<string, number>;
+  /** Advertised context window per `provider/model`, for request trimming. */
+  contextLimits: Map<string, number>;
   /** `provider/model` ids whose upstream accepts image input. */
   imageModels: Set<string>;
 
@@ -78,6 +80,7 @@ export function createRuntimeState(): RuntimeState {
     registryAttemptAt: 0,
     catalogModels: {},
     outputLimits: new Map(),
+    contextLimits: new Map(),
     imageModels: new Set(),
     lastQuotaRefreshAt: 0,
     lastErrorLogAt: 0,

@@ -21,6 +21,15 @@ export const CONTEXT_WINDOW = 200_000;
 export const MAX_CONTEXT_WINDOW = 1_000_000;
 export const MAX_OUTPUT_TOKENS = 32_768;
 /**
+ * Share of the advertised window a primary request may occupy before stale
+ * tool results are collapsed. Long free-pi sessions reach 100k-170k prompts
+ * and the free models then lose the middle of the conversation and stop
+ * following the working rules, even though the gateway still accepts them.
+ */
+export const CONTEXT_DIET_SHARE = 0.4;
+/** Below this window the diet is pointless: the request is small anyway. */
+export const CONTEXT_DIET_MIN_TOKENS = 24_000;
+/**
  * Upper bound for a model that publishes a larger output budget. Reasoning
  * tokens share this budget, so a model that can emit more must not be pinned to
  * the CLI's 32k: a long chain of thought would consume it and leave `content`
@@ -91,6 +100,7 @@ export const FREE_PI_GUIDANCE_MARKER = "# free-pi working rules";
  */
 export const FREE_PI_COMPACTION_GUIDANCE = `# free-pi compaction rules
 - Keep every unresolved user requirement and constraint, using their wording when a later agent must act on them.
+- For each step in the work state, write the conclusion it proved, not only the file or command: "read X and confirmed Y", "build failed with Z". A list of actions without their findings makes the next agent repeat the work.
 - Keep decisions and their reasons, exact file paths and symbols, commands with the observed result, error strings, and work still pending.
 - Preserve details that explain why the current state looks the way it does; the next agent cannot re-read the history this summary replaces.
 - Do not invent progress or results that are not in the conversation.`;

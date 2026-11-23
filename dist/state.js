@@ -8,6 +8,7 @@ export function createRuntimeState() {
         registryAttemptAt: 0,
         catalogModels: {},
         outputLimits: new Map(),
+        contextLimits: new Map(),
         imageModels: new Set(),
         lastQuotaRefreshAt: 0,
         lastErrorLogAt: 0,

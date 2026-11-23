@@ -1306,6 +1306,69 @@ try {
     globalThis.fetch = originalFetch;
   }
 
+  // A long primary request keeps its turns and instructions but collapses
+  // stale tool payloads, so the free models stay inside the range where they
+  // still follow the working rules.
+  {
+    deps.state.contextLimits.set("free-pi/hy4-flash", 200_000);
+    const dietMessages = [
+      { role: "user", content: "corrige el parser" },
+      { role: "tool", tool_call_id: "t1", content: "a".repeat(400_000) },
+      { role: "assistant", content: [{ type: "text", text: "confirmado" }] },
+      { role: "user", content: "aplica el cambio" },
+    ];
+    const dietEvent = await invoke("context", "free-pi", {
+      sessionID: "ses_diet",
+      agent: "build",
+      kind: "primary",
+      model: { providerID: "free-pi", id: "hy4-flash" },
+      system: [],
+      messages: dietMessages,
+      options: {},
+    });
+    assert.equal(dietEvent.messages.length, dietMessages.length);
+    assert.deepEqual(dietEvent.messages[0], dietMessages[0]);
+    assert.deepEqual(dietEvent.messages[2], dietMessages[2]);
+    assert.deepEqual(dietEvent.messages[3], dietMessages[3]);
+    assert.match(
+      dietEvent.messages[1].content,
+      /characters of this tool result were pruned/,
+    );
+    assert.ok(
+      infos.some((entry) =>
+        /pruned stale tool results/i.test(entry.message),
+      ),
+      "the diet is logged",
+    );
+
+    // Already inside the budget: the list is left untouched.
+    const smallMessages = [
+      { role: "user", content: "hola" },
+      { role: "tool", tool_call_id: "t1", content: "salida" },
+    ];
+    const smallEvent = await invoke("context", "free-pi", {
+      sessionID: "ses_diet_small",
+      agent: "build",
+      kind: "primary",
+      model: { providerID: "free-pi", id: "hy4-flash" },
+      system: [],
+      messages: smallMessages,
+      options: {},
+    });
+    assert.equal(smallEvent.messages, smallMessages);
+
+    // Requests served by another provider are never pruned.
+    const foreignEvent = await invokeGlobal("context", {
+      sessionID: "ses_foreign",
+      kind: "primary",
+      model: { providerID: "nvidia", id: "gemma" },
+      system: [],
+      messages: dietMessages,
+      options: {},
+    });
+    assert.equal(foreignEvent.messages, dietMessages);
+  }
+
   // Usage tracking feeds the quota endpoint.
   deps.state.trackedModels.set("ses_parent", {
     providerID: "free-pi",

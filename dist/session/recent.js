@@ -36,6 +36,7 @@ OpenCode keeps only the latest exchange beside this summary and shortens tool ou
 The summary you write must end with a section named \`## Recent window\` that reproduces these turns in order. Without it the summary is incomplete and the next agent will not know what was just done.
 
 - Keep the user's exact requests, the decisions with their reasons, the commands and file paths, the tool results and errors, and the step that is still in progress.
+- State what each action proved ("read X and confirmed Y"), so the next agent does not repeat it.
 - Quote the recent turns; do not replace them with a one line recap.
 
 ${window.text}`;

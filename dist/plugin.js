@@ -179,12 +179,14 @@ async function setup(ctx) {
         const defenseNow = buildDefense();
         for (const [id, model] of Object.entries(mainNow)) {
             state.outputLimits.set(`${PROVIDER_ID}/${id}`, model.limit.output);
+            state.contextLimits.set(`${PROVIDER_ID}/${id}`, model.limit.context);
             if (model.modalities.input.includes("image")) {
                 state.imageModels.add(`${PROVIDER_ID}/${id}`);
             }
         }
         for (const [id, model] of Object.entries(defenseNow)) {
             state.outputLimits.set(`${DEFENSE_PROVIDER_ID}/${id}`, model.limit.output);
+            state.contextLimits.set(`${DEFENSE_PROVIDER_ID}/${id}`, model.limit.context);
             if (model.modalities.input.includes("image")) {
                 state.imageModels.add(`${DEFENSE_PROVIDER_ID}/${id}`);
             }

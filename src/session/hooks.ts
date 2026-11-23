@@ -11,6 +11,8 @@ import {
   CONCURRENT_RETRY_BASE_MS,
   CONCURRENT_RETRY_MAX,
   CONCURRENT_RETRY_MAX_DELAY_MS,
+  CONTEXT_DIET_MIN_TOKENS,
+  CONTEXT_DIET_SHARE,
   DEFENSE_PROVIDER_ID,
   FREE_PI_COMPACTION_GUIDANCE,
   FREE_PI_COMPACTION_MARKER,
@@ -43,7 +45,8 @@ import {
 } from "../errors/limit.js";
 import { parseFreePiError } from "../errors/parse.js";
 import { trimMap } from "../utils/async.js";
-import { trimMessagesForBudget } from "./overflow.js";
+import { pruneStaleToolResults } from "./diet.js";
+import { trimMessagesForBudget, estimateMessageTokens } from "./overflow.js";
 import { buildRecentWindow, carriedWindowGuidance, recentWindowGuidance } from "./recent.js";
 import type { RecentWindow } from "./recent.js";
 import { watchFreePiNotice } from "./notices.js";
@@ -249,6 +252,44 @@ function appendCarriedWindow(deps: Deps, event: any): void {
   );
 }
 
+/**
+ * Collapses stale tool payloads before a request goes out. Long free-pi
+ * sessions reach 100k-170k token prompts, and at that size the free models
+ * lose the middle of the conversation and stop following the working rules
+ * even though the gateway accepts the request. User wording, assistant text
+ * and the newest messages are never touched; only old `read`/`grep`/`shell`
+ * results are shortened, with a note that says they were pruned.
+ */
+function applyContextDiet(deps: Deps, event: any): void {
+  const providerID = event.model?.providerID;
+  const modelID = event.model?.id;
+  if (typeof providerID !== "string" || typeof modelID !== "string") return;
+  const context = deps.state.contextLimits.get(`${providerID}/${modelID}`);
+  if (!context || context <= CONTEXT_DIET_MIN_TOKENS) return;
+  const budget = Math.max(
+    CONTEXT_DIET_MIN_TOKENS,
+    Math.floor(context * CONTEXT_DIET_SHARE),
+  );
+  if (budget >= context) return;
+  const messages = event.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return;
+  const result = pruneStaleToolResults(messages, budget, estimateMessageTokens);
+  if (result.pruned === 0) return;
+  event.messages = [...result.messages];
+  deps.log.info(
+    "free-pi pruned stale tool results so the prompt stays attended",
+    {
+      sessionID: event.sessionID,
+      model: modelID,
+      context,
+      budget,
+      pruned: result.pruned,
+      tokensBefore: result.tokensBefore,
+      tokensAfter: result.tokensAfter,
+    },
+  );
+}
+
 /** Caps output tokens, applies the efficiency rule and derives the ad turn. */
 async function applyGeneration(
   deps: Deps,
@@ -305,7 +346,10 @@ async function applyGeneration(
     // The free models tend to skip planning and claim work they did not do;
     // the CLI gets a much larger agent prompt. This is the compact equivalent.
     appendSystemGuidance(event, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER);
+    applyContextDiet(deps, event);
     appendCarriedWindow(deps, event);
+  } else {
+    applyContextDiet(deps, event);
   }
 
   const agent = event.agent;
