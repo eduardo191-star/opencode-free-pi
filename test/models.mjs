@@ -290,6 +290,13 @@ const catalogModels = [
   { id: "free-unlimited", free: true },
   { id: "allowance", free: false },
   { id: "premium", free: false, note: "premium credits" },
+  // The gateway answered 403 model_requires_credits for every model whose
+  // catalog name carries this label, even when `note` is empty.
+  {
+    id: "capacity",
+    free: false,
+    name: "DeepSeek V4 Pro · ~5.9x usage · at capacity for free users",
+  },
   { id: "gone", free: false, unavailable: true },
 ];
 const broke = accountAccess({ remaining_credits_today: 0, credit_usd: 0 });
@@ -308,12 +315,12 @@ const premiumOnly = accountAccess({
 });
 assert.deepEqual(
   filterAccessibleModels(catalogModels, premiumOnly).map((model) => model.id),
-  ["free-unlimited", "allowance", "premium"],
+  ["free-unlimited", "allowance", "premium", "capacity"],
 );
 // With no quota snapshot we keep everything rather than hide usable models.
 assert.deepEqual(
   filterAccessibleModels(catalogModels, undefined).map((model) => model.id),
-  ["free-unlimited", "allowance", "premium"],
+  ["free-unlimited", "allowance", "premium", "capacity"],
 );
 
 console.log("ok");

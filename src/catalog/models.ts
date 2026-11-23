@@ -301,7 +301,14 @@ export function accountAccess(me: MeResponse | undefined): AccountAccess | undef
 
 function isPremiumModel(model: CatalogModel): boolean {
   if (model.tier === "premium") return true;
-  return /premium\s+credits/i.test(model.note ?? "");
+  if (/premium\s+credits/i.test(model.note ?? "")) return true;
+  // The catalog labels every model the free lane cannot take with "at capacity
+  // for free users" (the name) even when `note` is empty. A curl_cffi probe of
+  // all 27 models showed that exactly those, plus the defense section, answer
+  // 403 `model_requires_credits`; the numbered `usage_x` alone does not predict
+  // it (Hy4 Flash, GPT-OSS 20B). Treat the label as premium-only so the picker
+  // does not offer a model that fails on the first turn.
+  return /at capacity for free users/i.test(model.name ?? "");
 }
 
 export function filterAccessibleModels(

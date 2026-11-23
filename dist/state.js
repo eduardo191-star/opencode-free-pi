@@ -29,6 +29,8 @@ export function createRuntimeState() {
         pendingAdTurns: new Map(),
         adImpressions: new Map(),
         trackedModels: new Map(),
+        lastModelBySession: new Map(),
+        deniedModels: new Set(),
         toolStats: new Map(),
         subagentSessions: new Set(),
         recentWindows: new Map(),

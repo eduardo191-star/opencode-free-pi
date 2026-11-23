@@ -410,6 +410,14 @@ async function applyGeneration(
   stripAssistantReasoning(deps, event);
 
   const modelID = event.model?.id;
+  // Remember the choice so a `model_requires_credits` failure can hide exactly
+  // the model that was rejected instead of the whole provider.
+  if (typeof event.sessionID === "string" && typeof modelID === "string") {
+    deps.state.lastModelBySession.set(
+      event.sessionID,
+      `${event.model.providerID}/${modelID}`,
+    );
+  }
   const limit = deps.state.outputLimits.get(
     `${event.model.providerID}/${modelID}`,
   );

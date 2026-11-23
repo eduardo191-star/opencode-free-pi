@@ -40,6 +40,7 @@ import {
   PROVIDER_ID,
 } from "./constants.js";
 import type { Deps } from "./deps.js";
+import type { ModelMap } from "./types.js";
 import { registerIntegration } from "./integration/setup.js";
 import { createLogger } from "./logging.js";
 import { applyEnvironmentProxy } from "./network/proxy.js";
@@ -207,18 +208,36 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
         : {}),
   };
 
+  // A model the gateway refused with `model_requires_credits` stays hidden until
+  // the credential or the catalog changes, so the picker only offers choices
+  // that work for this account.
+  const withoutDenied = (providerID: string, models: ModelMap): ModelMap => {
+    if (state.deniedModels.size === 0) return models;
+    const kept: ModelMap = {};
+    for (const [id, model] of Object.entries(models)) {
+      if (!state.deniedModels.has(`${providerID}/${id}`)) kept[id] = model;
+    }
+    return kept;
+  };
+
   // Rebuilt on every call so a learned context ceiling or a recovered catalog
   // applies without restarting OpenCode.
   const buildMain = () =>
-    buildModels(currentMain, candidates, {
-      ...buildOptions,
-      live: currentLiveLimits() ?? live,
-    });
+    withoutDenied(
+      PROVIDER_ID,
+      buildModels(currentMain, candidates, {
+        ...buildOptions,
+        live: currentLiveLimits() ?? live,
+      }),
+    );
   const buildDefense = () =>
-    buildModels(currentDefense, candidates, {
-      ...buildOptions,
-      live: currentLiveLimits() ?? live,
-    });
+    withoutDenied(
+      DEFENSE_PROVIDER_ID,
+      buildModels(currentDefense, candidates, {
+        ...buildOptions,
+        live: currentLiveLimits() ?? live,
+      }),
+    );
 
   function indexModelState(): void {
     const mainNow = buildMain();

@@ -3,6 +3,7 @@ import { closeFreePiSession } from "../api/session.js";
 import { readCredentialsToken } from "../auth/credentials.js";
 import { tokenFromCredential } from "../auth/credential.js";
 import { handleFreePiError } from "../errors/handle.js";
+import { parseFreePiError } from "../errors/parse.js";
 import { noteStepTokens } from "../catalog/live.js";
 import { forgetToolStats, isFreePiSession } from "./tools.js";
 import { beginExecution, cancelAllFinalizeTimers, endExecution, finalizeFreePiSession, forgetFreePiSession, } from "./track.js";
@@ -28,6 +29,24 @@ const EVENT_TYPES = [
     "session.deleted",
     "location.shutdown",
 ];
+/**
+ * Hides a model the gateway rejected with `model_requires_credits`. The error
+ * body does not name the model, but the session's last request does; removing
+ * it and reloading the provider keeps the picker from offering a choice that
+ * always fails on this account.
+ */
+async function hideRejectedModel(ctx, deps, sessionID, error) {
+    const parsed = parseFreePiError(error, true);
+    if (parsed?.code !== "model_requires_credits")
+        return;
+    const key = deps.state.lastModelBySession.get(sessionID);
+    if (!key || deps.state.deniedModels.has(key))
+        return;
+    deps.state.deniedModels.add(key);
+    deps.log.warn("free-pi hid a model this account cannot use", { model: key });
+    await ctx.provider.reload().catch(() => undefined);
+    await ctx.model.reload().catch(() => undefined);
+}
 async function handleEvent(ctx, deps, event) {
     switch (event.type) {
         case "credential.updated":
@@ -37,6 +56,8 @@ async function handleEvent(ctx, deps, event) {
             if (next === deps.state.providerToken)
                 return;
             deps.state.providerToken = next;
+            // A different sign-in can have premium credits, so re-test every model.
+            deps.state.deniedModels.clear();
             await ctx.provider.reload().catch(() => undefined);
             return;
         }
@@ -67,6 +88,7 @@ async function handleEvent(ctx, deps, event) {
                 if (isAbortLike(event.data?.error)) {
                     markWireSessionDirty(deps, sessionID);
                 }
+                await hideRejectedModel(ctx, deps, sessionID, event.data?.error);
                 await handleFreePiError(deps, event.data?.error, {
                     allowRaw: true,
                 }).catch(() => undefined);

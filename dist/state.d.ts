@@ -53,6 +53,10 @@ export type RuntimeState = {
     pendingAdTurns: Map<string, AdTurn>;
     adImpressions: Map<string, Promise<void>>;
     trackedModels: Map<string, TrackedModel>;
+    /** Last `provider/model` each session asked for, used to hide rejected models. */
+    lastModelBySession: Map<string, string>;
+    /** `provider/model` ids the gateway rejected as premium-only for this account. */
+    deniedModels: Set<string>;
     toolStats: Map<string, ToolStats>;
     subagentSessions: Set<string>;
     /** Newest turns quoted at the last compaction, carried once into the next request. */
