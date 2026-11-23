@@ -19,6 +19,9 @@ import {
   MAX_OUTPUT_TOKENS,
   MAX_OUTPUT_TOKENS_CEILING,
   PROVIDER_ID,
+  RECENT_WINDOW_CARRY_MARKER,
+  RECENT_WINDOW_CARRY_MS,
+  RECENT_WINDOW_MARKER,
   RETRY_BASE_DELAY_MS,
   RETRY_MAX_DELAY_MS,
   RETRY_MAX_RETRIES,
@@ -41,6 +44,8 @@ import {
 import { parseFreePiError } from "../errors/parse.js";
 import { trimMap } from "../utils/async.js";
 import { trimMessagesForBudget } from "./overflow.js";
+import { buildRecentWindow, carriedWindowGuidance, recentWindowGuidance } from "./recent.js";
+import type { RecentWindow } from "./recent.js";
 import { watchFreePiNotice } from "./notices.js";
 import {
   clearSpuriousOverflows,
@@ -111,13 +116,21 @@ function rememberPending(deps: Deps, key: string, turn: AdTurn): void {
  * further") when the summarizer request is rejected too, so the plugin drops
  * the oldest user turns before that can happen.
  */
-function fitCompactionMessages(deps: Deps, event: any): void {
+function fitCompactionMessages(
+  deps: Deps,
+  event: any,
+  reserveTokens = 0,
+): void {
   const modelID = typeof event.model?.id === "string" ? event.model.id : "";
   const ceiling = learnedContextWindow(currentLiveLimits(), modelID);
   if (!ceiling) return;
   const messages = event.messages;
   if (!Array.isArray(messages) || messages.length === 0) return;
-  const trimmed = trimMessagesForBudget(messages, Math.floor(ceiling * 0.9));
+  const budget = Math.max(
+    1_000,
+    Math.floor(ceiling * 0.9) - Math.max(0, reserveTokens),
+  );
+  const trimmed = trimMessagesForBudget(messages, budget);
   if (trimmed.dropped === 0) return;
   event.messages = [...trimmed.messages];
   deps.log.warn(
@@ -153,6 +166,89 @@ function appendSystemGuidance(
   event.system = system;
 }
 
+/**
+ * Reads the newest turns of the session from the native API. That history is
+ * the only place where the work done just before a compaction still exists
+ * verbatim: OpenCode's own request carries a shortened transcript, and after
+ * the compaction it keeps only the latest exchange.
+ */
+async function recentWindowForSession(
+  deps: Deps,
+  event: any,
+): Promise<RecentWindow | undefined> {
+  if (typeof event.sessionID !== "string" || event.sessionID.length === 0) {
+    return undefined;
+  }
+  const history = await deps.readContext(event.sessionID).catch(() => []);
+  if (!Array.isArray(history) || history.length === 0) return undefined;
+  return buildRecentWindow(history);
+}
+
+/**
+ * Sends the window both in the system prompt and at the end of the request.
+ * Free models ignore rules buried up front, but they do read the last message.
+ */
+function applyRecentWindow(
+  deps: Deps,
+  event: any,
+  window: RecentWindow,
+): void {
+  const guidance = recentWindowGuidance(window);
+  appendSystemGuidance(event, guidance, RECENT_WINDOW_MARKER);
+  const messages = Array.isArray(event.messages) ? event.messages : [];
+  const already = messages.some((message: any) =>
+    Array.isArray(message?.content)
+      ? message.content.some(
+          (part: any) =>
+            part?.type === "text" &&
+            typeof part.text === "string" &&
+            part.text.startsWith(RECENT_WINDOW_MARKER),
+        )
+      : false,
+  );
+  if (!already) {
+    messages.push({ role: "user", content: [{ type: "text", text: guidance }] });
+    event.messages = messages;
+  }
+  // Keep the same text for the next request: if the summary compressed the
+  // newest turns anyway, the agent still sees what it was doing.
+  trimMap(deps.state.recentWindows, PENDING_LIMIT);
+  deps.state.recentWindows.set(event.sessionID, {
+    at: Date.now(),
+    text: window.text,
+  });
+  deps.log.info(
+    "free-pi quoted the newest turns into the compaction summary",
+    {
+      sessionID: event.sessionID,
+      model: event.model?.id,
+      messages: window.messages,
+      chars: window.text.length,
+      truncated: window.truncated,
+    },
+  );
+}
+
+/**
+ * Hands the window saved at the last compaction to the first request after it,
+ * once. A stale entry is dropped instead of carried: the summary is the history
+ * by then.
+ */
+function appendCarriedWindow(deps: Deps, event: any): void {
+  if (typeof event.sessionID !== "string" || event.sessionID.length === 0) {
+    return;
+  }
+  const carried = deps.state.recentWindows.get(event.sessionID);
+  if (!carried) return;
+  deps.state.recentWindows.delete(event.sessionID);
+  if (Date.now() - carried.at > RECENT_WINDOW_CARRY_MS) return;
+  appendSystemGuidance(
+    event,
+    carriedWindowGuidance(carried.text),
+    RECENT_WINDOW_CARRY_MARKER,
+  );
+}
+
 /** Caps output tokens, applies the efficiency rule and derives the ad turn. */
 async function applyGeneration(
   deps: Deps,
@@ -185,12 +281,19 @@ async function applyGeneration(
   }
 
   if (kind === "compaction") {
-    fitCompactionMessages(deps, event);
+    // Quote the newest turns first: they must survive the trim below, because
+    // OpenCode keeps only the last exchange beside the summary afterwards.
+    const window = await recentWindowForSession(deps, event);
+    const reserve = window
+      ? Math.ceil(recentWindowGuidance(window).length / 4)
+      : 0;
+    fitCompactionMessages(deps, event, reserve);
     appendSystemGuidance(
       event,
       FREE_PI_COMPACTION_GUIDANCE,
       FREE_PI_COMPACTION_MARKER,
     );
+    if (window) applyRecentWindow(deps, event, window);
     // OpenCode sends the messages it is folding into the summary, which is the
     // same set pi reports through `session_before_compact`.
     recordCompaction(
@@ -202,6 +305,7 @@ async function applyGeneration(
     // The free models tend to skip planning and claim work they did not do;
     // the CLI gets a much larger agent prompt. This is the compact equivalent.
     appendSystemGuidance(event, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER);
+    appendCarriedWindow(deps, event);
   }
 
   const agent = event.agent;

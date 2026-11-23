@@ -90,6 +90,14 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   el límite hace fallar la compactación completa. Si aun así el resumen no cabe
   en el techo aprendido, se descartan los turnos de usuario más antiguos (sin
   romper parejas de herramienta) en lugar de abortar el turno.
+- **Ventana reciente en el resumen**: OpenCode sólo conserva el último
+  intercambio junto al resumen, así que el trabajo hecho justo antes de
+  compactar desaparecía. El plugin lee la sesión nativa, cita los últimos turnos
+  (hasta 24k caracteres) en la petición de compactación y exige que el resumen
+  termine con `## Recent window`, entregándolos también como último mensaje
+  porque los modelos gratuitos ignoran las reglas del sistema. Esos turnos
+  viajan una sola vez en la primera petición posterior, por si el resumen los
+  comprimió de más; caducan a la hora y no se guardan en disco.
 - **Sin bucles de compactación**: si el servidor rechaza como «demasiado
   largo» una petición que cabe de sobra en la ventana (menos de 60k tokens),
   el plugin la reintenta con un `x-session-id` nuevo en vez de compactar. Si

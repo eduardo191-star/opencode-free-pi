@@ -30,5 +30,6 @@ export function createRuntimeState() {
         trackedModels: new Map(),
         toolStats: new Map(),
         subagentSessions: new Set(),
+        recentWindows: new Map(),
     };
 }

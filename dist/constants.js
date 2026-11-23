@@ -87,6 +87,24 @@ export const FREE_PI_COMPACTION_GUIDANCE = `# free-pi compaction rules
 - Preserve details that explain why the current state looks the way it does; the next agent cannot re-read the history this summary replaces.
 - Do not invent progress or results that are not in the conversation.`;
 export const FREE_PI_COMPACTION_MARKER = "# free-pi compaction rules";
+/**
+ * OpenCode keeps only the latest exchange beside a summary, so after a
+ * compaction the turns that mattered a minute ago disappear unless the summary
+ * carries them. The plugin reads the session from the native API and echoes the
+ * newest turns into the summarizer request, so the summary can reproduce them.
+ */
+export const RECENT_WINDOW_MARKER = "# free-pi recent window";
+/** Characters of the newest turns quoted back into the summary request. */
+export const RECENT_WINDOW_CHARS = 24_000;
+/** Messages read from the tail of the session to build that window. */
+export const RECENT_WINDOW_MESSAGES = 120;
+/**
+ * The same window rides along on the first request after a compaction, in case
+ * the summary compressed it away. It is quoted once and expires, so it never
+ * becomes a second, permanent history.
+ */
+export const RECENT_WINDOW_CARRY_MARKER = "# free-pi carried window";
+export const RECENT_WINDOW_CARRY_MS = 60 * 60_000;
 /** pi-ai's HTTP idle timeout for headers and body chunks. */
 export const HEADER_TIMEOUT_MS = 300_000;
 export const CHUNK_TIMEOUT_MS = 300_000;

@@ -66,6 +66,8 @@ export type RuntimeState = {
   trackedModels: Map<string, TrackedModel>;
   toolStats: Map<string, ToolStats>;
   subagentSessions: Set<string>;
+  /** Newest turns quoted at the last compaction, carried once into the next request. */
+  recentWindows: Map<string, { at: number; text: string }>;
 };
 
 export function createRuntimeState(): RuntimeState {
@@ -98,5 +100,6 @@ export function createRuntimeState(): RuntimeState {
     trackedModels: new Map(),
     toolStats: new Map(),
     subagentSessions: new Set(),
+    recentWindows: new Map(),
   };
 }

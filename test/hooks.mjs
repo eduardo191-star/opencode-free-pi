@@ -18,6 +18,8 @@ const {
   MAX_OUTPUT_TOKENS_CEILING,
   FREE_PI_GUIDANCE_MARKER,
   FREE_PI_COMPACTION_MARKER,
+  RECENT_WINDOW_MARKER,
+  RECENT_WINDOW_CARRY_MARKER,
 } = await import("../dist/constants.js");
 
 const calls = [];
@@ -1115,6 +1117,141 @@ try {
       1_000_000,
       "the compaction output budget is left to OpenCode",
     );
+  }
+
+  // The compaction request quotes the newest turns from the native session:
+  // OpenCode keeps only the last exchange beside the summary, so those turns
+  // would otherwise vanish right after a compaction.
+  {
+    const previousRead = deps.readContext;
+    const reads = [];
+    deps.readContext = async (sessionID) => {
+      reads.push(sessionID);
+      return [
+        {
+          id: "m_recent_user",
+          type: "user",
+          role: "user",
+          content: [{ type: "text", text: "arregla la compactación" }],
+        },
+        {
+          id: "m_recent_assistant",
+          type: "assistant",
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "OpenCode conserva solo el último intercambio",
+            },
+          ],
+        },
+      ];
+    };
+    try {
+      const windowEvent = {
+        sessionID: "ses_window",
+        agent: "build",
+        kind: "compaction",
+        model: { providerID: "free-pi", id: "hy4-flash" },
+        system: [],
+        messages: [
+          {
+            id: "m_flat",
+            role: "user",
+            content: [{ type: "text", text: "flattened transcript" }],
+          },
+        ],
+        options: {},
+      };
+      await invoke("compaction", "free-pi", windowEvent);
+      assert.deepEqual(reads, ["ses_window"]);
+      const blocks = windowEvent.system.filter(
+        (part) =>
+          typeof part.text === "string" &&
+          part.text.startsWith(RECENT_WINDOW_MARKER),
+      );
+      assert.equal(blocks.length, 1, "the recent window is added once");
+      assert.match(blocks[0].text, /arregla la compactación/);
+      assert.match(blocks[0].text, /## Recent window/);
+      assert.equal(
+        windowEvent.system.some((part) =>
+          part.text.startsWith(FREE_PI_COMPACTION_MARKER),
+        ),
+        true,
+        "the summary rules are still present",
+      );
+      // Free models ignore a block buried in the system prompt, so the window
+      // also closes the conversation.
+      const closing = windowEvent.messages.at(-1);
+      assert.equal(closing.role, "user");
+      assert.match(closing.content[0].text, /^# free-pi recent window/);
+      assert.match(closing.content[0].text, /arregla la compactación/);
+
+      // The same event reused by OpenCode must not duplicate the block.
+      await invoke("compaction", "free-pi", windowEvent);
+      assert.equal(
+        windowEvent.system.filter((part) =>
+          part.text.startsWith(RECENT_WINDOW_MARKER),
+        ).length,
+        1,
+      );
+
+      // The first request after the compaction carries that window once, so the
+      // newest work is visible even if the summary compressed it.
+      const nextTurn = () => ({
+        sessionID: "ses_window",
+        agent: "build",
+        kind: "primary",
+        model: { providerID: "free-pi", id: "hy4-flash" },
+        system: [],
+        messages: [
+          {
+            id: `m_next_${Math.random().toString(36).slice(2, 7)}`,
+            role: "user",
+            content: [{ type: "text", text: "continúa" }],
+          },
+        ],
+        options: {},
+      });
+      const first = nextTurn();
+      await invoke("context", "free-pi", first);
+      const carried = first.system.filter(
+        (part) =>
+          typeof part.text === "string" &&
+          part.text.startsWith(RECENT_WINDOW_CARRY_MARKER),
+      );
+      assert.equal(carried.length, 1, "the window is carried once");
+      assert.match(carried[0].text, /arregla la compactación/);
+
+      const second = nextTurn();
+      await invoke("context", "free-pi", second);
+      assert.equal(
+        second.system.filter((part) =>
+          part.text.startsWith(RECENT_WINDOW_CARRY_MARKER),
+        ).length,
+        0,
+        "the window is not carried twice",
+      );
+
+      // A window older than an hour is dropped: the summary is the history by
+      // then, and a stale quote would only spend tokens.
+      deps.state.recentWindows.set("ses_stale", {
+        at: Date.now() - 2 * 60 * 60_000,
+        text: "[user]\nviejo",
+      });
+      const stale = nextTurn();
+      stale.sessionID = "ses_stale";
+      await invoke("context", "free-pi", stale);
+      assert.equal(
+        stale.system.some((part) =>
+          part.text.startsWith(RECENT_WINDOW_CARRY_MARKER),
+        ),
+        false,
+      );
+      assert.equal(deps.state.recentWindows.has("ses_stale"), false);
+    } finally {
+      deps.readContext = previousRead;
+    }
   }
 
   // After a few rejections of requests that fit, another compaction would only
