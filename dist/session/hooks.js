@@ -2,7 +2,7 @@
 import { ensureAdImpression } from "../ads/impression.js";
 import { resolveAdTurn } from "../ads/resolve.js";
 import { resolveToken } from "../auth/token.js";
-import { AD_CONTEXT_HEADER, AD_CONTEXT_OPT_OUT, CONCURRENT_RETRY_BASE_MS, CONCURRENT_RETRY_MAX, CONCURRENT_RETRY_MAX_DELAY_MS, CONTEXT_DIET_MIN_TOKENS, CONTEXT_DIET_SHARE, DEFENSE_PROVIDER_ID, FREE_PI_COMPACTION_GUIDANCE, FREE_PI_COMPACTION_MARKER, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER, MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_CEILING, PROVIDER_ID, RECENT_WINDOW_CARRY_MARKER, RECENT_WINDOW_CARRY_MS, RECENT_WINDOW_MARKER, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, SUBAGENT_HEADER, TRANSPORT_RETRY_BASE_MS, TRANSPORT_RETRY_MAX, TRANSPORT_RETRY_MAX_DELAY_MS, } from "../constants.js";
+import { AD_CONTEXT_HEADER, AD_CONTEXT_OPT_OUT, CONCURRENT_RETRY_BASE_MS, CONCURRENT_RETRY_MAX, CONCURRENT_RETRY_MAX_DELAY_MS, CONTEXT_DIET_MIN_TOKENS, CONTEXT_DIET_SHARE, DEFENSE_PROVIDER_ID, FREE_PI_COMPACTION_GUIDANCE, FREE_PI_COMPACTION_MARKER, FREE_PI_GUIDANCE, FREE_PI_GUIDANCE_MARKER, MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_CEILING, PROVIDER_ID, RECENT_WINDOW_CARRY_MARKER, RECENT_WINDOW_CARRY_MS, RECENT_WINDOW_MARKER, RETRY_BASE_DELAY_MS, RETRY_MAX_DELAY_MS, RETRY_MAX_RETRIES, SUBAGENT_HEADER, TRANSPORT_RETRY_BASE_MS, TRANSPORT_RETRY_MAX, TRANSPORT_RETRY_MAX_DELAY_MS, TURN_REMINDER, TURN_REMINDER_MARKER, } from "../constants.js";
 import { currentLiveLimits, learnedContextWindow, noteRejectedPrompt, } from "../catalog/live.js";
 import { closeFreePiSession } from "../api/session.js";
 import { rewriteContextOverflowResponse, rewriteLimitResponse, } from "../errors/limit.js";
@@ -151,6 +151,26 @@ function appendCarriedWindow(deps, event) {
     appendSystemGuidance(event, carriedWindowGuidance(carried.text), RECENT_WINDOW_CARRY_MARKER);
 }
 /**
+ * Puts the two rules weak free models forget on long conversations at the end
+ * of a primary request. The ad turn is resolved before this runs, so the
+ * reminder never leaks into `x-ad-context`. A fresh array keeps it out of the
+ * stored conversation and out of a later compaction request.
+ */
+function appendTurnReminder(event) {
+    const messages = Array.isArray(event.messages) ? event.messages : [];
+    const already = messages.some((message) => Array.isArray(message?.content)
+        ? message.content.some((part) => part?.type === "text" &&
+            typeof part.text === "string" &&
+            part.text.startsWith(TURN_REMINDER_MARKER))
+        : false);
+    if (already)
+        return;
+    event.messages = [
+        ...messages,
+        { role: "user", content: [{ type: "text", text: TURN_REMINDER }] },
+    ];
+}
+/**
  * Collapses stale tool payloads before a request goes out. Long free-pi
  * sessions reach 100k-170k token prompts, and at that size the free models
  * lose the middle of the conversation and stop following the working rules
@@ -247,6 +267,9 @@ async function applyGeneration(deps, event, kind) {
     if (turn) {
         rememberPending(deps, pendingKeyOf(event.sessionID, agent, kind), turn);
     }
+    // After the ad turn: the reminder must not be mistaken for the user prompt.
+    if (kind === "primary")
+        appendTurnReminder(event);
 }
 /** Adds auth and per-turn ad headers to the outgoing model request. */
 async function applyModelRequest(deps, event) {

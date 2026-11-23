@@ -69,6 +69,16 @@ export declare const FREE_PI_GUIDANCE_MARKER = "# free-pi working rules";
 export declare const FREE_PI_COMPACTION_GUIDANCE = "# free-pi compaction rules\n- Keep every unresolved user requirement and constraint, using their wording when a later agent must act on them.\n- For each step in the work state, write the conclusion it proved, not only the file or command: \"read X and confirmed Y\", \"build failed with Z\". A list of actions without their findings makes the next agent repeat the work.\n- Keep decisions and their reasons, exact file paths and symbols, commands with the observed result, error strings, and work still pending.\n- Preserve details that explain why the current state looks the way it does; the next agent cannot re-read the history this summary replaces.\n- Do not invent progress or results that are not in the conversation.";
 export declare const FREE_PI_COMPACTION_MARKER = "# free-pi compaction rules";
 /**
+ * Repeats the two rules the free models break when the prompt is long: they
+ * stop to describe the session state instead of acting, and they answer a
+ * request to search from memory. It is sent as the last message of a primary
+ * request because the free models read that position, while rules buried in a
+ * 100k-token system prompt are easy to ignore. It is not a user instruction and
+ * never becomes part of the stored conversation.
+ */
+export declare const TURN_REMINDER = "# free-pi turn check (not a user request)\nYou are in a normal working turn, not a compaction.\n- Never answer with `## Objective`, `## Requirements`, `## Work State` or a session summary; that format belongs only to a compaction. Earlier sections with those names are history, not an answer template.\n- If the user asked to search, find, analyze or verify something, call the matching tool first (grep/glob/shell for files, websearch/webfetch for the web) and report what it returned.\n- If the task is unfinished, call the next tool now instead of describing the state.";
+export declare const TURN_REMINDER_MARKER = "# free-pi turn check";
+/**
  * OpenCode keeps only the latest exchange beside a summary, so after a
  * compaction the turns that mattered a minute ago disappear unless the summary
  * carries them. The plugin reads the session from the native API and echoes the

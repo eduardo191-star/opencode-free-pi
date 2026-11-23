@@ -31,6 +31,8 @@ import {
   TRANSPORT_RETRY_BASE_MS,
   TRANSPORT_RETRY_MAX,
   TRANSPORT_RETRY_MAX_DELAY_MS,
+  TURN_REMINDER,
+  TURN_REMINDER_MARKER,
 } from "../constants.js";
 import {
   currentLiveLimits,
@@ -274,6 +276,31 @@ function appendCarriedWindow(deps: Deps, event: any): void {
 }
 
 /**
+ * Puts the two rules weak free models forget on long conversations at the end
+ * of a primary request. The ad turn is resolved before this runs, so the
+ * reminder never leaks into `x-ad-context`. A fresh array keeps it out of the
+ * stored conversation and out of a later compaction request.
+ */
+function appendTurnReminder(event: any): void {
+  const messages = Array.isArray(event.messages) ? event.messages : [];
+  const already = messages.some((message: any) =>
+    Array.isArray(message?.content)
+      ? message.content.some(
+          (part: any) =>
+            part?.type === "text" &&
+            typeof part.text === "string" &&
+            part.text.startsWith(TURN_REMINDER_MARKER),
+        )
+      : false,
+  );
+  if (already) return;
+  event.messages = [
+    ...messages,
+    { role: "user", content: [{ type: "text", text: TURN_REMINDER }] },
+  ];
+}
+
+/**
  * Collapses stale tool payloads before a request goes out. Long free-pi
  * sessions reach 100k-170k token prompts, and at that size the free models
  * lose the middle of the conversation and stop following the working rules
@@ -385,6 +412,9 @@ async function applyGeneration(
   if (turn) {
     rememberPending(deps, pendingKeyOf(event.sessionID, agent, kind), turn);
   }
+
+  // After the ad turn: the reminder must not be mistaken for the user prompt.
+  if (kind === "primary") appendTurnReminder(event);
 }
 
 /** Adds auth and per-turn ad headers to the outgoing model request. */

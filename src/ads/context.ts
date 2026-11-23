@@ -1,6 +1,6 @@
 /** Builds and redacts the ad context sent with a user turn. */
 
-import { AD_CONTEXT_MAX_CHARS } from "../constants.js";
+import { AD_CONTEXT_MAX_CHARS, TURN_REMINDER_MARKER } from "../constants.js";
 import { cleanText } from "../utils/text.js";
 
 const AD_SECRET_PATTERNS: Array<[string, RegExp]> = [
@@ -138,7 +138,9 @@ export function latestUserText(messages: readonly AdMessage[]): string {
     const text = cleanText(
       typeof message.text === "string" ? message.text : contentText(message.content),
     );
-    if (text) return text;
+    // The plugin appends this after the ad turn is resolved; ignore it if the
+    // event is reused so the next ad never describes the reminder itself.
+    if (text && !text.startsWith(TURN_REMINDER_MARKER)) return text;
   }
   return "";
 }

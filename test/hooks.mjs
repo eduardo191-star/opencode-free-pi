@@ -20,6 +20,7 @@ const {
   FREE_PI_COMPACTION_MARKER,
   RECENT_WINDOW_MARKER,
   RECENT_WINDOW_CARRY_MARKER,
+  TURN_REMINDER_MARKER,
 } = await import("../dist/constants.js");
 
 const calls = [];
@@ -167,6 +168,42 @@ try {
         part.text.startsWith(FREE_PI_GUIDANCE_MARKER),
     ),
     "free-pi working rules are appended",
+  );
+  // The turn check rides at the end of the request, where the free models read
+  // it, and it is not part of the user's own messages.
+  const reminderParts = contextEvent.messages.flatMap((message) =>
+    (message.content ?? []).filter(
+      (part) =>
+        typeof part.text === "string" &&
+        part.text.startsWith(TURN_REMINDER_MARKER),
+    ),
+  );
+  assert.equal(reminderParts.length, 1, "one turn reminder is appended");
+  assert.equal(
+    contextEvent.messages.at(-1)?.role,
+    "user",
+    "the turn reminder is the last message",
+  );
+  // Reusing an event that already carries it must not stack another copy.
+  await invoke("context", "free-pi", {
+    sessionID: "ses_parent",
+    agent: "build",
+    kind: "primary",
+    model: { providerID: "free-pi", id: "hy4-flash" },
+    system: [],
+    messages: contextEvent.messages,
+    options: {},
+  });
+  assert.equal(
+    contextEvent.messages.filter((message) =>
+      (message.content ?? []).some(
+        (part) =>
+          typeof part.text === "string" &&
+          part.text.startsWith(TURN_REMINDER_MARKER),
+      ),
+    ).length,
+    1,
+    "the turn reminder is not duplicated",
   );
   // Reusing the same request must not stack duplicate guidance blocks.
   const reusedSystem = [...contextEvent.system];
@@ -632,6 +669,16 @@ try {
         part.text.startsWith(FREE_PI_COMPACTION_MARKER),
     ),
     "compaction guidance is appended",
+  );
+  assert.ok(
+    !compactEvent.messages.some((message) =>
+      (message.content ?? []).some(
+        (part) =>
+          typeof part.text === "string" &&
+          part.text.startsWith(TURN_REMINDER_MARKER),
+      ),
+    ),
+    "compaction requests do not carry the primary turn reminder",
   );
   const afterCompaction = await invoke("model.request", "free-pi", {
     sessionID: "ses_parent",
@@ -1386,7 +1433,7 @@ try {
       messages: dietMessages,
       options: {},
     });
-    assert.equal(dietEvent.messages.length, dietMessages.length);
+    assert.equal(dietEvent.messages.length, dietMessages.length + 1);
     assert.deepEqual(dietEvent.messages[0], dietMessages[0]);
     assert.deepEqual(dietEvent.messages[2], dietMessages[2]);
     assert.deepEqual(dietEvent.messages[3], dietMessages[3]);
@@ -1415,7 +1462,8 @@ try {
       messages: smallMessages,
       options: {},
     });
-    assert.equal(smallEvent.messages, smallMessages);
+    assert.equal(smallEvent.messages.length, smallMessages.length + 1);
+    assert.deepEqual(smallEvent.messages.slice(0, 2), smallMessages);
 
     // Requests served by another provider are never pruned.
     const foreignEvent = await invokeGlobal("context", {

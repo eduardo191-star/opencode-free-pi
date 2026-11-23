@@ -99,6 +99,20 @@ export const FREE_PI_COMPACTION_GUIDANCE = `# free-pi compaction rules
 - Do not invent progress or results that are not in the conversation.`;
 export const FREE_PI_COMPACTION_MARKER = "# free-pi compaction rules";
 /**
+ * Repeats the two rules the free models break when the prompt is long: they
+ * stop to describe the session state instead of acting, and they answer a
+ * request to search from memory. It is sent as the last message of a primary
+ * request because the free models read that position, while rules buried in a
+ * 100k-token system prompt are easy to ignore. It is not a user instruction and
+ * never becomes part of the stored conversation.
+ */
+export const TURN_REMINDER = `# free-pi turn check (not a user request)
+You are in a normal working turn, not a compaction.
+- Never answer with \`## Objective\`, \`## Requirements\`, \`## Work State\` or a session summary; that format belongs only to a compaction. Earlier sections with those names are history, not an answer template.
+- If the user asked to search, find, analyze or verify something, call the matching tool first (grep/glob/shell for files, websearch/webfetch for the web) and report what it returned.
+- If the task is unfinished, call the next tool now instead of describing the state.`;
+export const TURN_REMINDER_MARKER = "# free-pi turn check";
+/**
  * OpenCode keeps only the latest exchange beside a summary, so after a
  * compaction the turns that mattered a minute ago disappear unless the summary
  * carries them. The plugin reads the session from the native API and echoes the
