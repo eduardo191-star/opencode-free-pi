@@ -56,6 +56,23 @@ assert.deepEqual(messages, [], "no proxy in the environment stays silent");
 Object.assign(process.env, saved);
 
 // --- a configured proxy is actually used by fetch -------------------------
+// Node 24.5+ is the first runtime with `http.setGlobalProxyFromEnv()`; older
+// releases ignore `*_proxy` in `fetch` no matter what, so there the plugin must
+// warn with an actionable message instead of silently going direct.
+const canApplyProxy = typeof http.setGlobalProxyFromEnv === "function";
+
+if (!canApplyProxy) {
+  process.env.HTTPS_PROXY = "http://127.0.0.1:9";
+  messages.length = 0;
+  assert.equal(applyEnvironmentProxy(fakeLog), false);
+  delete process.env.HTTPS_PROXY;
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0][0], "warn");
+  assert.match(messages[0][1], /NODE_USE_ENV_PROXY=1/);
+  console.log("network ok (runtime without setGlobalProxyFromEnv)");
+  process.exit(0);
+}
+
 const seen = [];
 const proxy = http.createServer((req, res) => {
   seen.push(req.url);

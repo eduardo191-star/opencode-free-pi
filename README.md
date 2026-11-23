@@ -227,11 +227,18 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   plugin lo activa al arrancar con `http.setGlobalProxyFromEnv()`: el catálogo,
   la cuota, los anuncios, la visión, los reintentos y las peticiones al gateway
   pasan por el proxy en vez de salir directos y fallar con `ETIMEDOUT`. Sin
-  variables de proxy no cambia nada; en Node sin esa API avisa en el log y sigue
-  directo. En Node 26 la verificación fue real: con `HTTPS_PROXY` apuntando a un
-  proxy local, las conexiones a `api.freepi.ai`, `models.opencode.ai` y
-  `registry.npmjs.org` aparecieron en el proxy y una sesión completa respondió
-  correctamente.
+  variables de proxy no cambia nada. `setGlobalProxyFromEnv()` existe desde Node
+  24.5; en un Node anterior el plugin escribe en el log que hay que arrancar
+  OpenCode con `NODE_USE_ENV_PROXY=1` (o actualizar Node), porque esa versión
+  ignora el proxy en `fetch` aunque se defina el resto. En Node 26 la
+  verificación fue real: con `HTTPS_PROXY` apuntando a un proxy local, las
+  conexiones a `api.freepi.ai`, `models.opencode.ai` y `registry.npmjs.org`
+  aparecieron en el proxy y una sesión completa respondió correctamente.
+  `fetch` solo admite el proxy de forma global en el proceso, así que la
+  activación equivale a arrancar con `NODE_USE_ENV_PROXY=1`: cualquier cliente
+  del proceso que respete el proxy global lo usará, y los demás proveedores del
+  mismo OpenCode también dejan de fallar detrás de una red que solo permite
+  proxy.
 - **Aislamiento por proveedor**: todo lo que añade el plugin —herramientas,
   cabeceras, anuncios, reglas de prompt, compactación, reintentos, topes de
   tokens y ajustes— se aplica solo a `free-pi` y `free-pi-defense`. Los demás

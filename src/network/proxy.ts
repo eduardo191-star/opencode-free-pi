@@ -64,7 +64,7 @@ export function applyEnvironmentProxy(log: Logger): boolean {
   const setter = proxySetter();
   if (!setter) {
     log.warn(
-      "free-pi found a proxy in the environment but this Node version cannot use it; requests go out directly",
+      "free-pi found a proxy in the environment but this Node runtime cannot apply it; start OpenCode with NODE_USE_ENV_PROXY=1 or use Node 24.5+ so free-pi requests follow the proxy",
       { node: process.version, proxy: describeProxy(proxy) },
     );
     return false;
