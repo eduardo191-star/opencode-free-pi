@@ -163,6 +163,10 @@ export function noteSpuriousOverflow(deps, sessionID) {
     const now = Date.now();
     const previous = deps.state.spuriousOverflows.get(sessionID);
     const count = previous && now - previous.at <= STORM_WINDOW_MS ? previous.count + 1 : 1;
+    // Delete first so an existing session moves to the end of the insertion
+    // order: `Map.set` on a present key keeps its old position, and the trim
+    // below would otherwise evict a session that is still being rejected.
+    deps.state.spuriousOverflows.delete(sessionID);
     deps.state.spuriousOverflows.set(sessionID, { at: now, count });
     if (deps.state.spuriousOverflows.size > STORM_LIMIT_PER_SESSION) {
         const oldest = deps.state.spuriousOverflows.keys().next().value;
