@@ -101,10 +101,18 @@ export function forgetFreePiSession(deps, sessionID) {
     if (!sessionID)
         return;
     cancelFinalizeTimer(deps, sessionID);
+    // A session evicted from the bounded tracking set never reached
+    // `finalizeFreePiSession`, so its server slot would stay open until the
+    // gateway times it out. Release it here unless the finalize already did.
+    const released = deps.state.finalizedSessions.has(sessionID);
+    const wireID = wireSessionID(deps, sessionID);
     deps.state.freePiSessions.delete(sessionID);
     deps.state.finalizedSessions.delete(sessionID);
     deps.state.activeExecutions.delete(sessionID);
     deps.state.sessionActivity.delete(sessionID);
     deps.state.trackedModels.delete(sessionID);
     forgetWireSessionID(deps, sessionID);
+    if (!released) {
+        void closeFreePiSession(deps, wireID).catch(() => undefined);
+    }
 }

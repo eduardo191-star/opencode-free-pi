@@ -806,6 +806,9 @@ try {
   );
 
   // Compaction reuses the current turn but opts out of ad context.
+  const adsBeforeCompaction = calls.filter((call) =>
+    call.url.includes("/ads/next"),
+  ).length;
   const compactionRequest = await invoke("model.request", "free-pi", {
     sessionID: "ses_parent",
     agent: "build",
@@ -814,6 +817,60 @@ try {
     headers: {},
   });
   assert.equal(compactionRequest.headers["x-ad-context"], "none");
+  assert.equal(
+    calls.filter((call) => call.url.includes("/ads/next")).length,
+    adsBeforeCompaction,
+    "a compaction request does not fetch or record a new ad impression",
+  );
+
+  // The newest-turns quote is appended to the compaction request without
+  // mutating the array OpenCode owns and reuses across hooks.
+  {
+    const history = [
+      {
+        id: "u_window",
+        type: "user",
+        role: "user",
+        text: "recent request that must be quoted",
+        content: [{ type: "text", text: "recent request that must be quoted" }],
+      },
+      {
+        id: "a_window",
+        type: "assistant",
+        role: "assistant",
+        content: [{ type: "text", text: "recent answer that must be quoted" }],
+      },
+    ];
+    deps.readContext = async () => history;
+    const ownedMessages = [
+      { role: "user", content: [{ type: "text", text: "fold me" }] },
+    ];
+    const windowEvent = await invoke("compaction", "free-pi", {
+      sessionID: "ses_window",
+      agent: "build",
+      kind: "compaction",
+      model: { providerID: "free-pi", id: "hy4-flash" },
+      system: [],
+      messages: ownedMessages,
+      options: {},
+    });
+    assert.ok(
+      windowEvent.messages.some((message) =>
+        (message.content ?? []).some(
+          (part) =>
+            typeof part.text === "string" &&
+            part.text.startsWith(RECENT_WINDOW_MARKER),
+        ),
+      ),
+      "the newest turns are quoted into the compaction request",
+    );
+    assert.equal(
+      ownedMessages.length,
+      1,
+      "the quote does not mutate the caller's message array",
+    );
+    deps.readContext = async () => [];
+  }
 
   // Retry follows pi's 3 attempts, 2s base and 60s cap.
   const retry = await invoke("retry", "free-pi", {

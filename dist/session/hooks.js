@@ -115,8 +115,13 @@ function applyRecentWindow(deps, event, window) {
             part.text.startsWith(RECENT_WINDOW_MARKER))
         : false);
     if (!already) {
-        messages.push({ role: "user", content: [{ type: "text", text: guidance }] });
-        event.messages = messages;
+        // A fresh array: OpenCode reuses the event across hooks, and appending to
+        // the shared array would carry this block into the stored conversation and
+        // the next, unrelated request.
+        event.messages = [
+            ...messages,
+            { role: "user", content: [{ type: "text", text: guidance }] },
+        ];
     }
     // Keep the same text for the next request: if the summary compressed the
     // newest turns anyway, the agent still sees what it was doing.
@@ -393,9 +398,11 @@ async function applyModelRequest(deps, event) {
         event.kind === "compaction"
             ? AD_CONTEXT_OPT_OUT
             : (turn.context ?? AD_CONTEXT_OPT_OUT);
-    if (token) {
+    if (token && event.kind !== "compaction") {
         // V1 awaited the first ad fetch for the turn so the impression lands
         // before the model request. Later steps reuse the settled promise.
+        // Compaction opts out of the ad context, so it must not fetch or record a
+        // new impression for a request the user never sees.
         await ensureAdImpression(deps, token, event.sessionID, turn).catch(() => undefined);
     }
 }

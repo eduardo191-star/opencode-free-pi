@@ -5,7 +5,9 @@ import { tokenFromCredential } from "../auth/credential.js";
 import { handleFreePiError } from "../errors/handle.js";
 import { parseFreePiError } from "../errors/parse.js";
 import { noteStepTokens } from "../catalog/live.js";
+import { SESSION_TRACK_LIMIT } from "../constants.js";
 import { forgetToolStats, isFreePiSession } from "./tools.js";
+import { trimSet } from "../utils/async.js";
 import { beginExecution, cancelAllFinalizeTimers, endExecution, finalizeFreePiSession, forgetFreePiSession, } from "./track.js";
 import { markWireSessionDirty, } from "./wire.js";
 import { recordUsage } from "./usage.js";
@@ -69,6 +71,9 @@ async function handleEvent(ctx, deps, event) {
                 return;
             if (typeof event.data?.parentID === "string") {
                 deps.state.subagentSessions.add(sessionID);
+                // Bound the set: a child whose deletion event is missed (crash, restart)
+                // would otherwise grow it forever and keep marking requests as children.
+                trimSet(deps.state.subagentSessions, SESSION_TRACK_LIMIT);
             }
             return;
         }
@@ -134,6 +139,7 @@ async function handleEvent(ctx, deps, event) {
             forgetFreePiSession(deps, sessionID);
             forgetToolStats(deps, sessionID);
             deps.state.subagentSessions.delete(sessionID);
+            deps.state.lastModelBySession.delete(sessionID);
             return;
         }
         case "location.shutdown": {

@@ -266,6 +266,10 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
   await registerIntegration(ctx, deps);
 
   await ctx.provider.transform((editor) => {
+    // Re-index on every transform: a learned context/output ceiling changes the
+    // built model, and the diet and maxTokens cap read these maps. Refreshing
+    // only at setup would keep budgeting against the old window after a reload.
+    indexModelState();
     applyProvider(
       editor,
       PROVIDER_ID,

@@ -8,7 +8,9 @@ import type { Deps } from "../deps.js";
 import { handleFreePiError } from "../errors/handle.js";
 import { parseFreePiError } from "../errors/parse.js";
 import { noteStepTokens } from "../catalog/live.js";
+import { SESSION_TRACK_LIMIT } from "../constants.js";
 import { forgetToolStats, isFreePiSession } from "./tools.js";
+import { trimSet } from "../utils/async.js";
 import {
   beginExecution,
   cancelAllFinalizeTimers,
@@ -90,6 +92,9 @@ async function handleEvent(
       if (typeof sessionID !== "string") return;
       if (typeof event.data?.parentID === "string") {
         deps.state.subagentSessions.add(sessionID);
+        // Bound the set: a child whose deletion event is missed (crash, restart)
+        // would otherwise grow it forever and keep marking requests as children.
+        trimSet(deps.state.subagentSessions, SESSION_TRACK_LIMIT);
       }
       return;
     }
@@ -158,6 +163,7 @@ async function handleEvent(
       forgetFreePiSession(deps, sessionID);
       forgetToolStats(deps, sessionID);
       deps.state.subagentSessions.delete(sessionID);
+      deps.state.lastModelBySession.delete(sessionID);
       return;
     }
     case "location.shutdown": {

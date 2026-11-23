@@ -216,6 +216,10 @@ async function setup(ctx) {
         tokenFromCredential(credential) ?? (await readCredentialsToken());
     await registerIntegration(ctx, deps);
     await ctx.provider.transform((editor) => {
+        // Re-index on every transform: a learned context/output ceiling changes the
+        // built model, and the diet and maxTokens cap read these maps. Refreshing
+        // only at setup would keep budgeting against the old window after a reload.
+        indexModelState();
         applyProvider(editor, PROVIDER_ID, "Free Pi", buildMain(), state.providerToken);
         if (includeDefense && currentDefense.length > 0) {
             applyProvider(editor, DEFENSE_PROVIDER_ID, "Free Pi Defense", buildDefense(), state.providerToken);
