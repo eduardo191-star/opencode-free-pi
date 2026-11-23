@@ -208,6 +208,12 @@ export const QUOTA_HTTP_TIMEOUT_MS = 5_000;
 export const QUOTA_REFRESH_DEBOUNCE_MS = 1_000;
 export const SESSION_RESET_COOLDOWN_MS = 15_000;
 /**
+ * Releasing a server slot is a tiny POST, but a VPN or a proxy adds a round
+ * trip; 3s let the reset expire before the gateway answered and left the slot
+ * locked until the next 429.
+ */
+export const SESSION_RESET_TIMEOUT_MS = 6_000;
+/**
  * How long a free-pi session must stay quiet before its server slot is closed.
  * Background compaction can start right after the last step, so closing on the
  * execution event alone would race with it.

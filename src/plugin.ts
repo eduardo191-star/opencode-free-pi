@@ -42,6 +42,7 @@ import {
 import type { Deps } from "./deps.js";
 import { registerIntegration } from "./integration/setup.js";
 import { createLogger } from "./logging.js";
+import { applyEnvironmentProxy } from "./network/proxy.js";
 import { subscribeEvents } from "./session/events.js";
 import { registerSessionHooks } from "./session/hooks.js";
 import { cancelAllFinalizeTimers } from "./session/track.js";
@@ -67,6 +68,10 @@ function activeCredentialResolver(ctx: Plugin.Context) {
 
 async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
   const log = createLogger("free-pi");
+  // A VPN or corporate setup may only allow traffic through a local proxy.
+  // Enable it before the first catalog request so the provider registers models
+  // instead of disappearing from the picker.
+  applyEnvironmentProxy(log);
   const state = createRuntimeState();
   const includeDefense = ctx.options?.includeDefense !== false;
 

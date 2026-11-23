@@ -1,7 +1,10 @@
 /** Releases free-pi server-side session slots. */
 
 import { resolveToken } from "../auth/token.js";
-import { SESSION_RESET_COOLDOWN_MS } from "../constants.js";
+import {
+  SESSION_RESET_COOLDOWN_MS,
+  SESSION_RESET_TIMEOUT_MS,
+} from "../constants.js";
 import type { Deps } from "../deps.js";
 import type { SessionResetOutcome } from "../types.js";
 import { trimMap } from "../utils/async.js";
@@ -18,7 +21,7 @@ function resetRequest(deps: Deps, token: string, sessionID?: string) {
   return fetch(new URL("/session/reset", resolveBaseUrl()), {
     method: "POST",
     headers,
-    signal: AbortSignal.timeout(3000),
+    signal: AbortSignal.timeout(SESSION_RESET_TIMEOUT_MS),
   });
 }
 

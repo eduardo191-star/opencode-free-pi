@@ -13,6 +13,7 @@ import { applyProvider } from "./catalog/v2.js";
 import { CATALOG_RECOVERY_DELAYS_MS, CATALOG_RECOVERY_INTERVAL_MS, CATALOG_RECOVERY_LOG_EVERY, DEFENSE_PROVIDER_ID, PROVIDER_ID, } from "./constants.js";
 import { registerIntegration } from "./integration/setup.js";
 import { createLogger } from "./logging.js";
+import { applyEnvironmentProxy } from "./network/proxy.js";
 import { subscribeEvents } from "./session/events.js";
 import { registerSessionHooks } from "./session/hooks.js";
 import { cancelAllFinalizeTimers } from "./session/track.js";
@@ -38,6 +39,10 @@ function activeCredentialResolver(ctx) {
 }
 async function setup(ctx) {
     const log = createLogger("free-pi");
+    // A VPN or corporate setup may only allow traffic through a local proxy.
+    // Enable it before the first catalog request so the provider registers models
+    // instead of disappearing from the picker.
+    applyEnvironmentProxy(log);
     const state = createRuntimeState();
     const includeDefense = ctx.options?.includeDefense !== false;
     const deps = {

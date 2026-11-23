@@ -221,6 +221,17 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
   mientras no haya ningún modelo registrado, así que un arranque sin red (VPN
   caída, DPI bloqueando el gateway) se recupera solo cuando vuelve la conexión.
   No hace falta reiniciar OpenCode ni elegir otra carpeta.
+- **Proxy de VPN o red corporativa**: el CLI oficial de free-pi lee `HTTPS_PROXY`,
+  `HTTP_PROXY` y `ALL_PROXY` (en mayúsculas o minúsculas), pero `fetch` de Node
+  los ignora salvo que se active. Por eso, si el entorno define un proxy, el
+  plugin lo activa al arrancar con `http.setGlobalProxyFromEnv()`: el catálogo,
+  la cuota, los anuncios, la visión, los reintentos y las peticiones al gateway
+  pasan por el proxy en vez de salir directos y fallar con `ETIMEDOUT`. Sin
+  variables de proxy no cambia nada; en Node sin esa API avisa en el log y sigue
+  directo. En Node 26 la verificación fue real: con `HTTPS_PROXY` apuntando a un
+  proxy local, las conexiones a `api.freepi.ai`, `models.opencode.ai` y
+  `registry.npmjs.org` aparecieron en el proxy y una sesión completa respondió
+  correctamente.
 - **Aislamiento por proveedor**: todo lo que añade el plugin —herramientas,
   cabeceras, anuncios, reglas de prompt, compactación, reintentos, topes de
   tokens y ajustes— se aplica solo a `free-pi` y `free-pi-defense`. Los demás
