@@ -16,7 +16,7 @@
 import { closeFreePiSession } from "../api/session.js";
 import { overflowCodeOf } from "../errors/limit.js";
 import { sleep, trimMap } from "../utils/async.js";
-import { measureRequestTokens, SPURIOUS_OVERFLOW_TOKENS, } from "./overflow.js";
+import { profileRequest, SPURIOUS_OVERFLOW_TOKENS, } from "./overflow.js";
 import { rotateWireSessionID, wireSessionID } from "./wire.js";
 const REPLAY_BODY_LIMIT = 24;
 const REPLAY_MAX_ATTEMPTS = 4;
@@ -152,13 +152,16 @@ export async function replaySpuriousOverflow(deps, event) {
     const body = await storedBody(deps, event);
     if (!body)
         return {};
-    const tokens = measureRequestTokens(body);
-    if (tokens >= SPURIOUS_OVERFLOW_TOKENS)
-        return { tokens, spurious: false };
+    const profile = profileRequest(body);
+    const tokens = profile.tokens;
+    const facts = { model: profile.model, hasMedia: profile.hasMedia };
+    if (tokens >= SPURIOUS_OVERFLOW_TOKENS) {
+        return { tokens, ...facts, spurious: false };
+    }
     let previous = request.headers.get("x-session-id") ?? wireSessionID(deps, event.sessionID);
     for (let attempt = 1; attempt <= OVERFLOW_REPLAY_ATTEMPTS; attempt++) {
         if (request.signal.aborted)
-            return { tokens, spurious: true };
+            return { tokens, ...facts, spurious: true };
         const next = rotateWireSessionID(deps, event.sessionID);
         if (previous && previous !== next) {
             void closeFreePiSession(deps, previous).catch(() => undefined);
@@ -178,9 +181,9 @@ export async function replaySpuriousOverflow(deps, event) {
             continue;
         if (!(await overflowCodeOf(response))) {
             deps.log.info("free-pi rejected a request that fits as too long; replayed it on a fresh session id", { sessionID: event.sessionID, tokens, to: next, attempt });
-            return { tokens, spurious: true, response };
+            return { tokens, ...facts, spurious: true, response };
         }
     }
     deps.log.info("free-pi keeps rejecting a request that fits as too long; the provider is failing", { sessionID: event.sessionID, tokens });
-    return { tokens, spurious: true };
+    return { tokens, ...facts, spurious: true };
 }

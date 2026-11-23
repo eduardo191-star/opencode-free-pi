@@ -54,10 +54,16 @@ const ctx = {
       return { dispose: async () => {} };
     },
   },
+  provider: {
+    reload: async () => {
+      reloads += 1;
+    },
+  },
 };
 
 const warnings = [];
 const infos = [];
+let reloads = 0;
 const deps = {
   state: createRuntimeState(),
   log: {
@@ -1029,6 +1035,49 @@ try {
     assert.equal(attempts.length, 0);
     assert.match(await hugeEvent.response.text(), /prompt is too long/i);
     globalThis.fetch = originalFetch;
+
+    // The size the gateway refused is a hard ceiling for that model: the next
+    // catalog build advertises a window below it, and the provider is reloaded
+    // so this process uses it without a restart.
+    const live = await import("../dist/catalog/live.js");
+    const ceiling = live.learnedContextWindow(
+      live.currentLiveLimits(),
+      "hy4-flash",
+    );
+    assert.ok(ceiling && ceiling < 100_000, String(ceiling));
+    assert.equal(reloads > 0, true);
+  }
+
+  // A compaction request larger than the learned ceiling drops the oldest user
+  // turns, because OpenCode ends the turn when its summarizer request is
+  // refused. The compaction keeps OpenCode's own output budget.
+  {
+    const big = (id) => ({
+      id,
+      role: "user",
+      content: [{ type: "text", text: "y".repeat(200_000) }],
+    });
+    const newest = {
+      id: "m_newest",
+      role: "user",
+      content: [{ type: "text", text: "keep me" }],
+    };
+    const trimEvent = await invoke("compaction", "free-pi", {
+      sessionID: "ses_trim",
+      agent: "build",
+      kind: "compaction",
+      model: { providerID: "free-pi", id: "hy4-flash" },
+      system: [],
+      messages: [big("m_old"), big("m_mid"), newest],
+      options: { maxTokens: 1_000_000 },
+    });
+    assert.ok(trimEvent.messages.length < 3, String(trimEvent.messages.length));
+    assert.equal(trimEvent.messages.at(-1).id, "m_newest");
+    assert.equal(
+      trimEvent.options.maxTokens,
+      1_000_000,
+      "the compaction output budget is left to OpenCode",
+    );
   }
 
   // After a few rejections of requests that fit, another compaction would only
@@ -1109,7 +1158,10 @@ try {
   );
 
   const unexpected = warnings.filter(
-    (entry) => !/compact loop stopped/i.test(entry.message),
+    (entry) =>
+      !/compact loop stopped/i.test(entry.message) &&
+      !/lowering the advertised window/i.test(entry.message) &&
+      !/trimmed the compaction request/i.test(entry.message),
   );
   assert.equal(unexpected.length, 0, JSON.stringify(warnings));
   console.log("ok");

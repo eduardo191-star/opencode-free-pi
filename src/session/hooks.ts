@@ -24,6 +24,11 @@ import {
   RETRY_MAX_RETRIES,
   SUBAGENT_HEADER,
 } from "../constants.js";
+import {
+  currentLiveLimits,
+  learnedContextWindow,
+  noteRejectedPrompt,
+} from "../catalog/live.js";
 import type { Deps } from "../deps.js";
 import { closeFreePiSession } from "../api/session.js";
 import {
@@ -32,6 +37,7 @@ import {
 } from "../errors/limit.js";
 import { parseFreePiError } from "../errors/parse.js";
 import { trimMap } from "../utils/async.js";
+import { trimMessagesForBudget } from "./overflow.js";
 import { watchFreePiNotice } from "./notices.js";
 import {
   clearSpuriousOverflows,
@@ -96,6 +102,33 @@ function rememberPending(deps: Deps, key: string, turn: AdTurn): void {
   deps.state.pendingAdTurns.set(key, turn);
 }
 
+/**
+ * Fits the compaction request inside the ceiling the gateway has already
+ * proven. OpenCode aborts the turn ("the compaction request cannot be reduced
+ * further") when the summarizer request is rejected too, so the plugin drops
+ * the oldest user turns before that can happen.
+ */
+function fitCompactionMessages(deps: Deps, event: any): void {
+  const modelID = typeof event.model?.id === "string" ? event.model.id : "";
+  const ceiling = learnedContextWindow(currentLiveLimits(), modelID);
+  if (!ceiling) return;
+  const messages = event.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return;
+  const trimmed = trimMessagesForBudget(messages, Math.floor(ceiling * 0.9));
+  if (trimmed.dropped === 0) return;
+  event.messages = [...trimmed.messages];
+  deps.log.warn(
+    "free-pi trimmed the compaction request to fit the learned window",
+    {
+      sessionID: event.sessionID,
+      model: modelID,
+      window: ceiling,
+      droppedMessages: trimmed.dropped,
+      promptTokens: trimmed.tokens,
+    },
+  );
+}
+
 /** Adds a system block once, even when OpenCode reuses the same event. */
 function appendSystemGuidance(
   event: any,
@@ -138,15 +171,18 @@ async function applyGeneration(
   const limit = deps.state.outputLimits.get(
     `${event.model.providerID}/${modelID}`,
   );
-  // Reasoning shares the output budget; a model that publishes more than the
-  // CLI's 32k keeps that larger budget (up to the plugin ceiling).
+  // The compaction summary is the one response that must never be cut: a
+  // summary that reaches the output limit fails the whole compaction and the
+  // turn stops with nothing but the checkpoint. Leave OpenCode's own budget
+  // for it and only cap the answers the user reads.
   const cap = Math.min(limit ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_CEILING);
-  if (event.options) {
+  if (event.options && kind !== "compaction") {
     const current = event.options.maxTokens;
     if (current === undefined || current > cap) event.options.maxTokens = cap;
   }
 
   if (kind === "compaction") {
+    fitCompactionMessages(deps, event);
     appendSystemGuidance(
       event,
       FREE_PI_COMPACTION_GUIDANCE,
@@ -540,6 +576,26 @@ export async function registerSessionHooks(
         const reviewed = await replaySpuriousOverflow(deps, event).catch(
           () => ({}) as OverflowReplay,
         );
+        // A rejection of a real prompt is the only free measurement of the
+        // gateway's ceiling. Attachments inflate the estimate and say nothing
+        // about the text window, so they are not learned from.
+        if (
+          reviewed.spurious === false &&
+          typeof reviewed.tokens === "number" &&
+          reviewed.model &&
+          reviewed.hasMedia !== true
+        ) {
+          const learned = noteRejectedPrompt(
+            deps,
+            reviewed.model,
+            reviewed.tokens,
+          );
+          // Re-run the provider transform so this session's next compaction
+          // already targets the smaller window; no restart needed.
+          if (learned) {
+            void ctx.provider.reload().catch(() => undefined);
+          }
+        }
         if (reviewed.response) {
           clearSpuriousOverflows(deps, event.sessionID);
           event.response = watchFreePiNotice(deps, reviewed.response);

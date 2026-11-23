@@ -19,7 +19,7 @@ import type { Deps } from "../deps.js";
 import { overflowCodeOf } from "../errors/limit.js";
 import { sleep, trimMap } from "../utils/async.js";
 import {
-  measureRequestTokens,
+  profileRequest,
   SPURIOUS_OVERFLOW_TOKENS,
 } from "./overflow.js";
 import { rotateWireSessionID, wireSessionID } from "./wire.js";
@@ -159,6 +159,10 @@ export async function replayConcurrentResponse(
 export type OverflowReplay = {
   /** Tokens of the rejected request, when its body was available. */
   readonly tokens?: number;
+  /** Upstream model the rejected request asked for. */
+  readonly model?: string;
+  /** Whether the rejected request carried an inline image or file. */
+  readonly hasMedia?: boolean;
   /** Whether the rejected request plainly fits the model window. */
   readonly spurious?: boolean;
   /** A good response from a fresh wire session, when the retry succeeded. */
@@ -187,13 +191,17 @@ export async function replaySpuriousOverflow(
 
   const body = await storedBody(deps, event);
   if (!body) return {};
-  const tokens = measureRequestTokens(body);
-  if (tokens >= SPURIOUS_OVERFLOW_TOKENS) return { tokens, spurious: false };
+  const profile = profileRequest(body);
+  const tokens = profile.tokens;
+  const facts = { model: profile.model, hasMedia: profile.hasMedia };
+  if (tokens >= SPURIOUS_OVERFLOW_TOKENS) {
+    return { tokens, ...facts, spurious: false };
+  }
 
   let previous =
     request.headers.get("x-session-id") ?? wireSessionID(deps, event.sessionID);
   for (let attempt = 1; attempt <= OVERFLOW_REPLAY_ATTEMPTS; attempt++) {
-    if (request.signal.aborted) return { tokens, spurious: true };
+    if (request.signal.aborted) return { tokens, ...facts, spurious: true };
     const next = rotateWireSessionID(deps, event.sessionID);
     if (previous && previous !== next) {
       void closeFreePiSession(deps, previous).catch(() => undefined);
@@ -217,12 +225,12 @@ export async function replaySpuriousOverflow(
         "free-pi rejected a request that fits as too long; replayed it on a fresh session id",
         { sessionID: event.sessionID, tokens, to: next, attempt },
       );
-      return { tokens, spurious: true, response };
+      return { tokens, ...facts, spurious: true, response };
     }
   }
   deps.log.info(
     "free-pi keeps rejecting a request that fits as too long; the provider is failing",
     { sessionID: event.sessionID, tokens },
   );
-  return { tokens, spurious: true };
+  return { tokens, ...facts, spurious: true };
 }

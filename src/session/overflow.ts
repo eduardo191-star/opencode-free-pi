@@ -31,18 +31,45 @@ export const SPURIOUS_OVERFLOW_MESSAGE =
   "free-pi rejected this request as too long even though it fits the model's window; " +
   "this is a provider failure, not a context overflow. Retry the message, or start a new session if it persists.";
 
+/** Part types that carry an inline image or file, which the provider bills in full. */
+const MEDIA_PART_TYPES = new Set([
+  "image",
+  "image_url",
+  "input_image",
+  "file",
+  "input_file",
+]);
+
+export type RequestProfile = {
+  /** Approximate token count of the whole body. */
+  readonly tokens: number;
+  /** The upstream model the body asks for, when it can be read. */
+  readonly model?: string;
+  /** Whether the body carries an inline image or file. */
+  readonly hasMedia: boolean;
+};
+
 /**
  * Approximate token count of a chat-completions body: every string in it,
  * message text and tool output alike, at the usual four characters per token.
  * Inline media counts at its base64 length, which is what the provider bills.
+ *
+ * The same walk reports the requested model and whether the body carries
+ * inline media. A rejection caused by a large attachment says nothing about
+ * the model's text window, so callers must not learn a ceiling from it.
  */
-export function measureRequestTokens(body: string): number {
+export function profileRequest(body: string): RequestProfile {
   try {
     const data = JSON.parse(body) as unknown;
     let chars = 0;
+    let model: string | undefined;
+    let hasMedia = false;
     const walk = (value: unknown): void => {
       if (typeof value === "string") {
         chars += value.length;
+        if (value.startsWith("data:image/") || value.startsWith("data:application/")) {
+          hasMedia = true;
+        }
         return;
       }
       if (Array.isArray(value)) {
@@ -50,17 +77,84 @@ export function measureRequestTokens(body: string): number {
         return;
       }
       if (value && typeof value === "object") {
-        for (const [key, item] of Object.entries(value)) {
+        const record = value as Record<string, unknown>;
+        if (typeof record.type === "string" && MEDIA_PART_TYPES.has(record.type)) {
+          hasMedia = true;
+        }
+        if (
+          model === undefined &&
+          typeof record.model === "string" &&
+          record.model.length > 0
+        ) {
+          model = record.model;
+        }
+        for (const [key, item] of Object.entries(record)) {
           chars += key.length;
           walk(item);
         }
       }
     };
     walk(data);
-    return Math.ceil(chars / 4);
+    return { tokens: Math.ceil(chars / 4), model, hasMedia };
   } catch {
-    return Math.ceil(body.length / 4);
+    return { tokens: Math.ceil(body.length / 4), hasMedia: false };
   }
+}
+
+/** Token count of a request body, without the extra facts. */
+export function measureRequestTokens(body: string): number {
+  return profileRequest(body).tokens;
+}
+
+/** Cheap per-message estimate; the body is serialized once per message. */
+export function estimateMessageTokens(message: unknown): number {
+  try {
+    return Math.ceil(JSON.stringify(message).length / 4);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Keeps the newest part of a message list inside `budget` tokens, cutting only
+ * at user turns so an assistant tool call never loses its results.
+ *
+ * OpenCode refuses to compact when the summarization request itself is still
+ * too large, and then the turn dies with nothing but the checkpoint shown. The
+ * gateway's real ceiling is lower than the advertised window, so the plugin
+ * trims the oldest turns it can spare before the summarizer is asked to read
+ * them.
+ */
+export function trimMessagesForBudget(
+  messages: readonly unknown[],
+  budget: number,
+): {
+  readonly messages: readonly unknown[];
+  readonly dropped: number;
+  readonly tokens: number;
+} {
+  if (messages.length === 0) return { messages, dropped: 0, tokens: 0 };
+  const sizes = messages.map(estimateMessageTokens);
+  let total = 0;
+  for (const size of sizes) total += size;
+  if (total <= budget) return { messages, dropped: 0, tokens: total };
+
+  const cuts: number[] = [];
+  for (let index = 1; index < messages.length; index += 1) {
+    const role = (messages[index] as { role?: unknown } | undefined)?.role;
+    if (role === "user") cuts.push(index);
+  }
+  for (const cut of cuts) {
+    let tail = 0;
+    for (let index = cut; index < sizes.length; index += 1) tail += sizes[index]!;
+    if (tail <= budget) {
+      return { messages: messages.slice(cut), dropped: cut, tokens: tail };
+    }
+  }
+  const last = cuts.length > 0 ? cuts[cuts.length - 1]! : messages.length - 1;
+  let tail = 0;
+  for (let index = last; index < sizes.length; index += 1) tail += sizes[index]!;
+  return { messages: messages.slice(last), dropped: last, tokens: tail };
 }
 
 /**

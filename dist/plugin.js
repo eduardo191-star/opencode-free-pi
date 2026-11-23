@@ -6,7 +6,7 @@ import { closeFreePiSession } from "./api/session.js";
 import { readCredentialsToken } from "./auth/credentials.js";
 import { tokenFromCredential } from "./auth/credential.js";
 import { fetchCatalog } from "./catalog/catalog.js";
-import { loadLiveLimits, shouldVerifyWindow, verifyGatewayWindow, } from "./catalog/live.js";
+import { currentLiveLimits, loadLiveLimits, shouldVerifyWindow, verifyGatewayWindow, } from "./catalog/live.js";
 import { accountAccess, buildModels, filterAccessibleModels, isReasoningEffort, modelRegistryCandidates, partitionModels, } from "./catalog/models.js";
 import { fetchModelsRegistry } from "./catalog/registry.js";
 import { applyProvider } from "./catalog/v2.js";
@@ -149,9 +149,15 @@ async function setup(ctx) {
         tokenFromCredential(credential) ?? (await readCredentialsToken());
     await registerIntegration(ctx, deps);
     await ctx.provider.transform((editor) => {
-        applyProvider(editor, PROVIDER_ID, "Free Pi", mainModels, state.providerToken);
+        // Rebuilt on every transform so a learned context ceiling applies as soon
+        // as the response hook records it, without restarting OpenCode.
+        const active = currentLiveLimits() ?? live;
+        const buildOptionsNow = { ...buildOptions, live: active };
+        const mainNow = buildModels(main, candidates, buildOptionsNow);
+        const defenseNow = buildModels(defense, candidates, buildOptionsNow);
+        applyProvider(editor, PROVIDER_ID, "Free Pi", mainNow, state.providerToken);
         if (includeDefense && defense.length > 0) {
-            applyProvider(editor, DEFENSE_PROVIDER_ID, "Free Pi Defense", defenseModels, state.providerToken);
+            applyProvider(editor, DEFENSE_PROVIDER_ID, "Free Pi Defense", defenseNow, state.providerToken);
         }
     });
     // The gateway does not publish its context ceiling. Verify the compiled

@@ -77,6 +77,19 @@ Después de iniciar sesión, ejecuta `/reload` en OpenCode o reinícialo.
 - **Compactación integrada**: los errores `context_too_long` de free-pi se
   reescriben para que OpenCode los reconozca como desbordamiento de contexto y
   ejecute `/compact` automáticamente en vez de terminar el turno.
+- **Techo por modelo aprendido del gateway**: cuando free-pi rechaza una
+  petición real por longitud, ese tamaño se guarda en `live-limits.json` como
+  techo de ese modelo y el catálogo anuncia una ventana un 15 % menor, también
+  sin reiniciar (`provider.reload`). Así la siguiente compactación empieza antes
+  de que el gateway rechace también el propio resumen, que es lo que dejaba el
+  turno detenido con solo el checkpoint en pantalla. Los rechazos causados por
+  una imagen o un archivo adjunto no cuentan: su base64 no dice nada de la
+  ventana de texto.
+- **Resumen de compactación sin recortes**: el presupuesto de salida de la
+  petición de compactación ya no se limita a 32k, porque un resumen cortado por
+  el límite hace fallar la compactación completa. Si aun así el resumen no cabe
+  en el techo aprendido, se descartan los turnos de usuario más antiguos (sin
+  romper parejas de herramienta) en lugar de abortar el turno.
 - **Sin bucles de compactación**: si el servidor rechaza como «demasiado
   largo» una petición que cabe de sobra en la ventana (menos de 60k tokens),
   el plugin la reintenta con un `x-session-id` nuevo en vez de compactar. Si
@@ -346,6 +359,15 @@ proveedor: repite la petición con un `x-session-id` nuevo y, si el servidor
 insiste, devuelve un `400` con un mensaje de error de proveedor. Ese texto no
 coincide con el patrón de desbordamiento de OpenCode, así que el runner deja de
 compactar en lugar de entrar en un ciclo de resúmenes que no reducen nada.
+
+Cuando el rechazo sí corresponde a una conversación larga, el tamaño medido se
+guarda como `rejectedPromptTokens` del modelo en `live-limits.json`. El
+`provider.transform` reconstruye el catálogo con ese techo (85 % del tamaño
+rechazado, sin bajar de la ventana ya aceptada) y `provider.reload` lo aplica en
+caliente, de modo que la siguiente compactación se dispara antes de que el
+gateway rechace el resumen. Si el resumen aún no cupiera, el hook de
+compactación descarta los turnos de usuario más antiguos en lugar de dejar que
+OpenCode aborte el turno.
 
 free-pi cobra en créditos contra una cuota diaria, no en USD por token. Por
 eso los modelos se registran con costo `0`, igual que el CLI del proveedor; el

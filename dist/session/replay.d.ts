@@ -24,6 +24,10 @@ export declare function replayConcurrentResponse(deps: Deps, event: any): Promis
 export type OverflowReplay = {
     /** Tokens of the rejected request, when its body was available. */
     readonly tokens?: number;
+    /** Upstream model the rejected request asked for. */
+    readonly model?: string;
+    /** Whether the rejected request carried an inline image or file. */
+    readonly hasMedia?: boolean;
     /** Whether the rejected request plainly fits the model window. */
     readonly spurious?: boolean;
     /** A good response from a fresh wire session, when the retry succeeded. */

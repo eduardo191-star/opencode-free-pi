@@ -17,6 +17,7 @@ import { readCredentialsToken } from "./auth/credentials.js";
 import { tokenFromCredential } from "./auth/credential.js";
 import { fetchCatalog } from "./catalog/catalog.js";
 import {
+  currentLiveLimits,
   loadLiveLimits,
   shouldVerifyWindow,
   verifyGatewayWindow,
@@ -188,11 +189,17 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
   await registerIntegration(ctx, deps);
 
   await ctx.provider.transform((editor) => {
+    // Rebuilt on every transform so a learned context ceiling applies as soon
+    // as the response hook records it, without restarting OpenCode.
+    const active = currentLiveLimits() ?? live;
+    const buildOptionsNow = { ...buildOptions, live: active };
+    const mainNow = buildModels(main, candidates, buildOptionsNow);
+    const defenseNow = buildModels(defense, candidates, buildOptionsNow);
     applyProvider(
       editor,
       PROVIDER_ID,
       "Free Pi",
-      mainModels,
+      mainNow,
       state.providerToken,
     );
     if (includeDefense && defense.length > 0) {
@@ -200,7 +207,7 @@ async function setup(ctx: Plugin.Context): Promise<() => Promise<void>> {
         editor,
         DEFENSE_PROVIDER_ID,
         "Free Pi Defense",
-        defenseModels,
+        defenseNow,
         state.providerToken,
       );
     }

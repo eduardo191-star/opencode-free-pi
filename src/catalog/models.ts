@@ -20,6 +20,7 @@ import type {
   RegistryCandidate,
 } from "../types.js";
 import type { LiveLimits } from "./live.js";
+import { learnedContextWindow } from "./live.js";
 import { positiveNumber } from "../utils/numbers.js";
 import { cleanText } from "../utils/text.js";
 
@@ -376,6 +377,10 @@ export function buildModels(
       MAX_CONTEXT_WINDOW,
       Math.max(options.live?.window?.tokens ?? CONTEXT_WINDOW, observed),
     );
+    // A prompt the gateway already refused is a hard ceiling: advertise below
+    // it so OpenCode compacts before the summarization request itself is
+    // rejected, which ends the turn with the checkpoint and no answer.
+    const learned = learnedContextWindow(options.live, model.id);
     const limitContext = Math.min(
       positiveNumber(
         model.context_window,
@@ -384,6 +389,7 @@ export function buildModels(
         capability?.limit?.context,
       ) ?? contextCeiling,
       contextCeiling,
+      learned ?? contextCeiling,
     );
     // Reasoning shares the output budget. When models.dev knows the upstream
     // model emits more than the CLI's 32k, advertise that larger budget (up to a

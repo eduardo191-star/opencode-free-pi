@@ -13,6 +13,8 @@ import type { TokenUsageLike } from "../types.js";
 export type ModelObservation = {
     /** Largest prompt the gateway accepted for this model. */
     maxPromptTokens?: number;
+    /** Smallest prompt the gateway rejected as too long for this model. */
+    rejectedPromptTokens?: number;
     /** Whether a real response carried reasoning tokens. */
     reasoning?: boolean;
     updatedAt: number;
@@ -38,8 +40,22 @@ export declare function currentLiveLimits(): LiveLimits | undefined;
  * model really reasoned for this account.
  */
 export declare function noteStepTokens(_deps: Deps, modelID: string, tokens: TokenUsageLike | undefined): void;
-/** Whether the persisted window is old enough to verify again. */
-export declare function shouldVerifyWindow(limits: LiveLimits | undefined): boolean;
+/**
+ * Safe context window for a model whose real ceiling is only known from a
+ * rejection. The gateway never publishes it, so the smallest prompt it refused
+ * is the only evidence available; the advertised window stays a margin below
+ * that, which lets OpenCode compact before the summarizer request is refused
+ * too.
+ */
+export declare function learnedContextWindow(limits: LiveLimits | undefined, modelID: string): number | undefined;
+/**
+ * Records a request the gateway refused as too long. Real traffic is the only
+ * probe that costs nothing, and a rejection is a hard upper bound on the
+ * model's window, so it lowers what the catalog advertises for that model from
+ * the next build on. Returns the window that now applies, if it changed.
+ */
+export declare function noteRejectedPrompt(deps: Deps, modelID: string, tokens: number): number | undefined;
+/** Whether the persisted window is old enough to verify again. */ export declare function shouldVerifyWindow(limits: LiveLimits | undefined): boolean;
 export type VerifyLimitsOptions = {
     /** A free model to probe with; paid models would spend credits. */
     model?: string;

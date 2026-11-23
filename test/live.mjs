@@ -72,6 +72,33 @@ const persisted = JSON.parse(
 );
 assert.equal(persisted.models.observed.maxPromptTokens, 51_500);
 
+// A rejection is a hard ceiling: the advertised window stays below it, and a
+// later, larger rejection does not raise it again.
+const quiet = { log: { warn() {} } };
+live.noteRejectedPrompt(quiet, "observed", 120_000);
+assert.equal(
+  live.currentLiveLimits().models.observed.rejectedPromptTokens,
+  120_000,
+);
+assert.equal(
+  live.learnedContextWindow(live.currentLiveLimits(), "observed"),
+  102_000,
+);
+const clamped = buildModels([{ id: "observed", free: true }], [], {
+  live: live.currentLiveLimits(),
+})["observed"];
+assert.equal(clamped.limit.context, 102_000);
+live.noteRejectedPrompt(quiet, "observed", 200_000);
+assert.equal(
+  live.learnedContextWindow(live.currentLiveLimits(), "observed"),
+  102_000,
+);
+// A model with no rejection keeps the measured window.
+assert.equal(
+  live.learnedContextWindow(live.currentLiveLimits(), "observed-other"),
+  undefined,
+);
+
 // A fresh verification is trusted for a week; a missing or stale one is not.
 assert.equal(live.shouldVerifyWindow(limits), false);
 assert.equal(live.shouldVerifyWindow(undefined), true);

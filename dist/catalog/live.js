@@ -46,6 +46,10 @@ function sanitize(value) {
         if (Number.isFinite(entry.maxPromptTokens) && entry.maxPromptTokens > 0) {
             observation.maxPromptTokens = Math.floor(entry.maxPromptTokens);
         }
+        if (Number.isFinite(entry.rejectedPromptTokens) &&
+            entry.rejectedPromptTokens > 0) {
+            observation.rejectedPromptTokens = Math.floor(entry.rejectedPromptTokens);
+        }
         if (typeof entry.reasoning === "boolean") {
             observation.reasoning = entry.reasoning;
         }
@@ -136,8 +140,45 @@ export function noteStepTokens(_deps, modelID, tokens) {
     entry.updatedAt = Date.now();
     scheduleWrite();
 }
-/** Whether the persisted window is old enough to verify again. */
-export function shouldVerifyWindow(limits) {
+/** Keeps the advertised window this far below the smallest rejected prompt. */
+const REJECTION_HEADROOM = 0.85;
+/**
+ * Safe context window for a model whose real ceiling is only known from a
+ * rejection. The gateway never publishes it, so the smallest prompt it refused
+ * is the only evidence available; the advertised window stays a margin below
+ * that, which lets OpenCode compact before the summarizer request is refused
+ * too.
+ */
+export function learnedContextWindow(limits, modelID) {
+    const rejected = limits?.models[modelID]?.rejectedPromptTokens;
+    if (!rejected || rejected <= 0)
+        return undefined;
+    return Math.max(2_048, Math.min(Math.floor(rejected * REJECTION_HEADROOM), MAX_WINDOW));
+}
+/**
+ * Records a request the gateway refused as too long. Real traffic is the only
+ * probe that costs nothing, and a rejection is a hard upper bound on the
+ * model's window, so it lowers what the catalog advertises for that model from
+ * the next build on. Returns the window that now applies, if it changed.
+ */
+export function noteRejectedPrompt(deps, modelID, tokens) {
+    if (!modelID || !Number.isFinite(tokens) || tokens <= 0)
+        return undefined;
+    const rejected = Math.floor(tokens);
+    const entry = observation(modelID);
+    if (entry.rejectedPromptTokens !== undefined &&
+        entry.rejectedPromptTokens <= rejected) {
+        return undefined;
+    }
+    const previous = learnedContextWindow(cached, modelID);
+    entry.rejectedPromptTokens = rejected;
+    entry.updatedAt = Date.now();
+    scheduleWrite();
+    const window = learnedContextWindow(cached, modelID);
+    deps.log.warn("free-pi rejected a prompt as too long; lowering the advertised window", { model: modelID, rejectedTokens: rejected, previous, window });
+    return window;
+}
+/** Whether the persisted window is old enough to verify again. */ export function shouldVerifyWindow(limits) {
     const verifiedAt = limits?.window?.verifiedAt;
     if (!verifiedAt)
         return true;
