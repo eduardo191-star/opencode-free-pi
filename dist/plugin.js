@@ -1,7 +1,6 @@
 /** OpenCode V2 plugin entry point for free-pi. */
 import { Plugin } from "@opencode/plugin";
-import { join } from "node:path";
-import { FREE_PI_SKILL, FREE_PI_SKILL_DESCRIPTION, FREE_PI_SKILL_ID, FREE_PI_SKILL_NAME, installFreePiAgents, openCodeConfigDir, } from "./agents/definitions.js";
+import { FREE_PI_SKILL, FREE_PI_SKILL_DESCRIPTION, FREE_PI_SKILL_ID, FREE_PI_SKILL_NAME, freePiSkillPath, installFreePiAgents, installFreePiSkill, openCodeConfigDir, } from "./agents/definitions.js";
 import { fetchQuota } from "./api/quota.js";
 import { closeFreePiSession } from "./api/session.js";
 import { readCredentialsToken } from "./auth/credentials.js";
@@ -71,6 +70,23 @@ async function setup(ctx) {
     catch (error) {
         log.warn("Could not install the free-pi subagents", error);
     }
+    // OpenCode's own skill loader reads `skills/free-pi/SKILL.md`. Install the
+    // file first so the skill has a real path, supporting files and permissions
+    // like any other native skill; the transform below only fills the gap when
+    // the config directory is not writable.
+    try {
+        const skill = await installFreePiSkill();
+        if (skill.changed) {
+            await ctx.skill.reload();
+            log.info("Installed the native free-pi skill");
+        }
+        if (skill.skipped) {
+            log.warn("Left the user-owned free-pi skill file untouched", freePiSkillPath(openCodeConfigDir()));
+        }
+    }
+    catch (error) {
+        log.warn("Could not install the free-pi skill file", error);
+    }
     try {
         nativeRegistrations.push(await ctx.skill.transform((editor) => {
             if (editor.get(FREE_PI_SKILL_ID))
@@ -79,7 +95,7 @@ async function setup(ctx) {
                 id: FREE_PI_SKILL_ID,
                 name: FREE_PI_SKILL_NAME,
                 description: FREE_PI_SKILL_DESCRIPTION,
-                path: join(openCodeConfigDir(), "skills", "free-pi", "SKILL.md"),
+                path: freePiSkillPath(openCodeConfigDir()),
                 content: FREE_PI_SKILL,
             });
         }));

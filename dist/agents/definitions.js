@@ -79,6 +79,19 @@ MCP servers, skills, commands, references and permissions are configured in
 OpenCode as usual; free-pi does not replace them. Prefer those native features
 over running an external CLI.
 `;
+/**
+ * The same skill as a native `SKILL.md`. OpenCode discovers it from the global
+ * skills directory, so the file, its ID, its permissions and the `skill` tool
+ * all belong to OpenCode instead of a runtime registration.
+ */
+export const FREE_PI_SKILL_FILE = `---
+name: ${FREE_PI_SKILL_NAME}
+description: ${FREE_PI_SKILL_DESCRIPTION}
+---
+
+${MARKER}
+
+${FREE_PI_SKILL}`;
 const SCOUT = `---
 description: Read-only recon. Locates code, traces how pieces connect, and returns structured findings the lead can use without re-reading the files.
 mode: all
@@ -240,6 +253,9 @@ export function openCodeConfigDir() {
 export function freePiAgentPath(configDir, id) {
     return join(configDir, "agents", ...id.split("/")) + ".md";
 }
+export function freePiSkillPath(configDir) {
+    return join(configDir, "skills", FREE_PI_SKILL_ID, "SKILL.md");
+}
 async function fileState(path, content) {
     try {
         const current = await readFile(path, "utf8");
@@ -274,4 +290,22 @@ export async function installFreePiAgents(configDir = openCodeConfigDir()) {
         installed.push(agent.id);
     }
     return { installed, skipped, changed: installed.length > 0 };
+}
+/**
+ * Writes the free-pi skill as `skills/free-pi/SKILL.md`, the layout OpenCode's
+ * own skill loader reads. A file without our marker is user-owned and stays
+ * untouched, exactly like the agent files.
+ */
+export async function installFreePiSkill(configDir = openCodeConfigDir()) {
+    const path = freePiSkillPath(configDir);
+    const state = await fileState(path, FREE_PI_SKILL_FILE);
+    if (state === "same") {
+        return { installed: false, skipped: false, changed: false };
+    }
+    if (state === "protected") {
+        return { installed: false, skipped: true, changed: false };
+    }
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, FREE_PI_SKILL_FILE, "utf8");
+    return { installed: true, skipped: false, changed: true };
 }

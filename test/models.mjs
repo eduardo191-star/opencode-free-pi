@@ -42,7 +42,10 @@ assert.deepEqual(free.cost, {
   cache_read: 0,
   cache_write: 0,
 });
-assert.equal(free.tool_call, false);
+// The free models were probed calling tools, so a models.dev entry for the
+// upstream alias cannot remove their tools. Without tools OpenCode would also
+// hide its native `subagent` tool.
+assert.equal(free.tool_call, true);
 assert.equal(free.attachment, true);
 assert.equal(free.temperature, false);
 assert.deepEqual(free.limit, { context: 123_456, output: 4_096 });
@@ -169,6 +172,13 @@ assert.deepEqual(registryCost.cost, {
   cache_read: 0,
   cache_write: 0,
 });
+// A paid alias keeps models.dev's tool capability, and free-pi's own catalog
+// wins when it explicitly disables tools for a free model.
+assert.equal(registryCost.tool_call, false);
+const freeExplicit = buildModels([
+  { id: "explicit-free", display_name: "Explicit Free", free: true, tool_call: false },
+])["explicit-free"];
+assert.equal(freeExplicit.tool_call, false);
 
 // A models.dev window larger than free-pi's real ceiling is clamped, so
 // OpenCode compacts before the server rejects the request.
@@ -243,7 +253,7 @@ assert.equal(isReasoningEffort("xhigh"), false);
 // The V2 projection keeps capabilities, variants, limits and cost tiers.
 const [v2] = toV2Models("free-pi", { "free-model": free });
 assert.equal(v2.providerID, "free-pi");
-assert.equal(v2.capabilities.tools, false);
+assert.equal(v2.capabilities.tools, true);
 // Multimodal upstreams keep the image capability models.dev reports; the chat
 // route never produces images, so output stays text.
 assert.deepEqual(v2.capabilities.input, ["text", "image"]);

@@ -275,14 +275,34 @@ plano, comparten el allowance diario y envían su informe al agente principal.
 Así se conservan las sesiones hijas, los permisos, la profundidad de subagentes
 y el resto del comportamiento nativo.
 
+La herramienta `subagent` es la de OpenCode y está disponible para **cualquier
+modelo**, no solo para los agentes `free-pi/*`: también puede lanzarlos un
+modelo de otro proveedor configurado en OpenCode. El plugin garantiza además que
+todos los modelos gratuitos anuncien soporte de tools, de modo que el runner
+nunca oculte `subagent` por una capacidad incorrecta de models.dev.
+
 El plugin solo reescribe estos archivos si conservan su marca de gestión; si el
 usuario edita o reemplaza uno, se respeta tal cual.
 
 ## Skill y contexto
 
-El plugin registra una skill `free-pi` mediante la API nativa de skills, con la
-lista de herramientas, los subagentes y las reglas de allowance. OpenCode la
-anuncia cuando es relevante y el agente la carga con su herramienta `skill`.
+El plugin instala una skill nativa en:
+
+```text
+~/.config/opencode/skills/free-pi/SKILL.md
+```
+
+OpenCode la descubre con su propio cargador (ID `free-pi`), la anuncia cuando es
+relevante y el agente la carga con su herramienta `skill`. Contiene la lista de
+herramientas, los subagentes y las reglas de allowance. Si el directorio de
+configuración no se puede escribir, el plugin la registra mediante la API de
+skills como respaldo.
+
+Cada petición principal de free-pi recibe además una guía breve que pide
+delegar el trabajo grande en `free-pi/scout`, `free-pi/planner`,
+`free-pi/worker` o `free-pi/reviewer` con `subagent`, cargar skills con `skill`
+y seguir `AGENTS.md` en lugar de inventar convenciones. Esa guía solo se añade a
+las peticiones de `free-pi` y `free-pi-defense`.
 
 La memoria, las sesiones y el contexto son los de OpenCode: `AGENTS.md` y los
 archivos de `instructions` se cargan de forma nativa, las sesiones persisten y

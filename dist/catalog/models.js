@@ -298,7 +298,11 @@ export function buildModels(models, candidates = [], options = {}) {
             ...(defaultEffort ? { settings: { reasoningEffort: defaultEffort } } : {}),
             enabled: model.unavailable !== true,
             temperature: model.temperature ?? capability?.temperature ?? true,
-            tool_call: model.tool_call ?? capability?.tool_call ?? true,
+            // All free models were probed against the gateway and call tools, so a
+            // models.dev entry that marks the matched upstream as text-only must not
+            // take away their tools. That would also hide OpenCode's native
+            // `subagent` tool. A `tool_call` value in free-pi's own catalog still wins.
+            tool_call: model.tool_call ?? (model.free === true ? true : capability?.tool_call ?? true),
             attachment: model.attachment ??
                 capability?.attachment ??
                 modalities.input.includes("image"),

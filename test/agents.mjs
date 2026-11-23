@@ -6,9 +6,13 @@ import { join } from "node:path";
 const {
   FREE_PI_AGENT_IDS,
   FREE_PI_SKILL,
+  FREE_PI_SKILL_FILE,
   freePiAgentPath,
+  freePiSkillPath,
   installFreePiAgents,
+  installFreePiSkill,
 } = await import("../dist/agents/definitions.js");
+const { FREE_PI_GUIDANCE } = await import("../dist/constants.js");
 
 const dir = await mkdtemp(join(tmpdir(), "freepi-agents-"));
 try {
@@ -40,6 +44,29 @@ try {
   assert.equal(again.changed, false);
   assert.deepEqual(again.installed, []);
 
+  // The skill is a native SKILL.md so OpenCode's loader owns its ID, path and
+  // permissions. It is installed once and then left alone.
+  const skillPath = freePiSkillPath(dir);
+  assert.match(skillPath.replaceAll("\\", "/"), /\/skills\/free-pi\/SKILL\.md$/);
+  const skillFirst = await installFreePiSkill(dir);
+  assert.equal(skillFirst.changed, true);
+  const skillFile = await readFile(skillPath, "utf8");
+  assert.equal(skillFile, FREE_PI_SKILL_FILE);
+  assert.match(skillFile, /^---\nname: free-pi\ndescription: /);
+  assert.match(skillFile, /managed by @eduardo191labs\/opencode-free-pi/);
+  assert.match(skillFile, /free-pi\/scout/);
+  assert.doesNotMatch(skillFile, /remember/);
+  const skillAgain = await installFreePiSkill(dir);
+  assert.equal(skillAgain.changed, false);
+  assert.equal(skillAgain.installed, false);
+
+  // A user-owned skill file is never overwritten.
+  await writeFile(skillPath, "---\nname: mine\n---\nmy own skill\n", "utf8");
+  const skillProtected = await installFreePiSkill(dir);
+  assert.equal(skillProtected.skipped, true);
+  assert.equal(skillProtected.changed, false);
+  assert.equal(await readFile(skillPath, "utf8"), "---\nname: mine\n---\nmy own skill\n");
+
   // User-owned files are never overwritten.
   const custom = freePiAgentPath(dir, "free-pi/planner");
   await writeFile(custom, "---\nmode: subagent\n---\nmy own planner\n", "utf8");
@@ -60,6 +87,14 @@ try {
   assert.doesNotMatch(FREE_PI_SKILL, /remember/);
   assert.doesNotMatch(FREE_PI_SKILL, /free_pi_buy_credits/);
   assert.doesNotMatch(FREE_PI_SKILL, /fusion/i);
+
+  // The per-request guidance points every free-pi model at OpenCode's native
+  // delegation, skills and project instructions.
+  assert.match(FREE_PI_GUIDANCE, /subagent/);
+  assert.match(FREE_PI_GUIDANCE, /free-pi\/scout/);
+  assert.match(FREE_PI_GUIDANCE, /free-pi\/worker/);
+  assert.match(FREE_PI_GUIDANCE, /skill/);
+  assert.match(FREE_PI_GUIDANCE, /AGENTS\.md/);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

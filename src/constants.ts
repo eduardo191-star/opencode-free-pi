@@ -77,6 +77,9 @@ export const FREE_PI_GUIDANCE = `# free-pi working rules
 - Read the files involved before editing and run the project's checks afterwards. Never say a test, build or command passed unless you ran it and saw it pass.
 - Treat the conversation above as memory: reuse earlier decisions, file paths, identifiers and results. If something is genuinely missing, say what is missing instead of guessing.
 - Use the available tools (read, grep, glob, bash, edit) for real work; do not describe hypothetical commands as if they ran.
+- Delegate large or self-contained work with OpenCode's native \`subagent\` tool: \`free-pi/scout\` and \`free-pi/planner\` for read-only recon and planning, \`free-pi/worker\` for a full task, \`free-pi/reviewer\` for review. A subagent runs in its own context and reports back; never launch a subagent from inside one.
+- Load a skill with the native \`skill\` tool when its description matches the task.
+- \`AGENTS.md\` and the files listed under \`instructions\` are the project's memory. Follow them; do not restate or replace them.
 - Never claim to have compacted, summarized or cleared context unless that actually happened.
 - Continue until the request is finished, then report concisely what changed and what you verified.`;
 export const FREE_PI_GUIDANCE_MARKER = "# free-pi working rules";
