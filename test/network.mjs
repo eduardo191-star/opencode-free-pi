@@ -53,14 +53,32 @@ const saved = {
 for (const name of Object.keys(saved)) delete process.env[name];
 assert.equal(applyEnvironmentProxy(fakeLog), false);
 assert.deepEqual(messages, [], "no proxy in the environment stays silent");
-Object.assign(process.env, saved);
+for (const [name, value] of Object.entries(saved)) {
+  if (typeof value === "string") process.env[name] = value;
+  else delete process.env[name];
+}
+
+const canApplyProxy = typeof http.setGlobalProxyFromEnv === "function";
+
+// `ALL_PROXY` is the generic name VPN clients export; Node ignores it, so the
+// plugin copies it into the protocol-specific variables it does read.
+const allEnv = { ALL_PROXY: "http://all:3128" };
+assert.equal(applyEnvironmentProxy(fakeLog, allEnv), canApplyProxy);
+assert.equal(allEnv.HTTPS_PROXY, "http://all:3128");
+assert.equal(allEnv.HTTP_PROXY, "http://all:3128");
+
+// A SOCKS URL cannot be dialed by Node's env proxy support: warn, stay direct.
+messages.length = 0;
+const socksEnv = { ALL_PROXY: "socks5://all:1080" };
+assert.equal(applyEnvironmentProxy(fakeLog, socksEnv), false);
+assert.equal(messages.length, 1);
+assert.equal(messages[0][0], "warn");
+assert.match(messages[0][1], /only http\/https proxies/);
 
 // --- a configured proxy is actually used by fetch -------------------------
 // Node 24.5+ is the first runtime with `http.setGlobalProxyFromEnv()`; older
 // releases ignore `*_proxy` in `fetch` no matter what, so there the plugin must
 // warn with an actionable message instead of silently going direct.
-const canApplyProxy = typeof http.setGlobalProxyFromEnv === "function";
-
 if (!canApplyProxy) {
   process.env.HTTPS_PROXY = "http://127.0.0.1:9";
   messages.length = 0;

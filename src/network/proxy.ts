@@ -13,14 +13,14 @@
 import http from "node:http";
 import type { Logger } from "../logging.js";
 
-const PROXY_VARIABLES = [
+const DIRECT_VARIABLES = [
   "HTTPS_PROXY",
   "https_proxy",
   "HTTP_PROXY",
   "http_proxy",
-  "ALL_PROXY",
-  "all_proxy",
 ] as const;
+const ALL_VARIABLES = ["ALL_PROXY", "all_proxy"] as const;
+const PROXY_VARIABLES = [...DIRECT_VARIABLES, ...ALL_VARIABLES] as const;
 
 /** First proxy URL exported in the environment, or undefined. */
 export function proxyFromEnvironment(
@@ -33,6 +33,17 @@ export function proxyFromEnvironment(
   return undefined;
 }
 
+function firstValue(
+  env: NodeJS.ProcessEnv,
+  names: readonly string[],
+): { name: string; value: string } | undefined {
+  for (const name of names) {
+    const value = env[name]?.trim();
+    if (value) return { name, value };
+  }
+  return undefined;
+}
+
 /** Proxy URL without credentials, safe for the log. */
 function describeProxy(value: string): string {
   try {
@@ -41,6 +52,34 @@ function describeProxy(value: string): string {
     return `${url.protocol}//${url.hostname}${port}`;
   } catch {
     return "configured";
+  }
+}
+
+/** HTTP(S) proxies only: Node's env support cannot dial a SOCKS URL. */
+function hasSupportedScheme(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Node reads `HTTPS_PROXY`/`HTTP_PROXY` and ignores `ALL_PROXY`, which is the
+ * generic name many VPN clients export. Copy it into the protocol-specific
+ * variables so a proxy-only network still works.
+ */
+function applyAllProxyFallback(env: NodeJS.ProcessEnv): void {
+  const all = firstValue(env, ALL_VARIABLES);
+  if (!all || !hasSupportedScheme(all.value)) return;
+  for (const [specific, name] of [
+    ["HTTPS_PROXY", "https_proxy"],
+    ["HTTP_PROXY", "http_proxy"],
+  ] as const) {
+    if (!env[specific]?.trim() && !env[name]?.trim()) {
+      env[specific] = all.value;
+    }
   }
 }
 
@@ -58,9 +97,22 @@ function proxySetter(): ProxySetter | undefined {
  * Enables the environment proxy for this process when one is configured.
  * Returns whether the plugin will use it.
  */
-export function applyEnvironmentProxy(log: Logger): boolean {
-  const proxy = proxyFromEnvironment();
+export function applyEnvironmentProxy(
+  log: Logger,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const proxy = proxyFromEnvironment(env);
   if (!proxy) return false;
+  if (!hasSupportedScheme(proxy)) {
+    log.warn(
+      "free-pi found a proxy in the environment that this runtime cannot use (only http/https proxies are supported); requests go out directly",
+      { proxy: describeProxy(proxy) },
+    );
+    return false;
+  }
+  // Normalize ALL_PROXY first: it stays useful even when this runtime cannot
+  // enable the proxy, because a restart with NODE_USE_ENV_PROXY=1 reads it.
+  applyAllProxyFallback(env);
   const setter = proxySetter();
   if (!setter) {
     log.warn(

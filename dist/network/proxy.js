@@ -10,20 +10,28 @@
  * `fetch`; when the runtime is older the plugin keeps going direct and says so.
  */
 import http from "node:http";
-const PROXY_VARIABLES = [
+const DIRECT_VARIABLES = [
     "HTTPS_PROXY",
     "https_proxy",
     "HTTP_PROXY",
     "http_proxy",
-    "ALL_PROXY",
-    "all_proxy",
 ];
+const ALL_VARIABLES = ["ALL_PROXY", "all_proxy"];
+const PROXY_VARIABLES = [...DIRECT_VARIABLES, ...ALL_VARIABLES];
 /** First proxy URL exported in the environment, or undefined. */
 export function proxyFromEnvironment(env = process.env) {
     for (const name of PROXY_VARIABLES) {
         const value = env[name]?.trim();
         if (value)
             return value;
+    }
+    return undefined;
+}
+function firstValue(env, names) {
+    for (const name of names) {
+        const value = env[name]?.trim();
+        if (value)
+            return { name, value };
     }
     return undefined;
 }
@@ -38,6 +46,34 @@ function describeProxy(value) {
         return "configured";
     }
 }
+/** HTTP(S) proxies only: Node's env support cannot dial a SOCKS URL. */
+function hasSupportedScheme(value) {
+    try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * Node reads `HTTPS_PROXY`/`HTTP_PROXY` and ignores `ALL_PROXY`, which is the
+ * generic name many VPN clients export. Copy it into the protocol-specific
+ * variables so a proxy-only network still works.
+ */
+function applyAllProxyFallback(env) {
+    const all = firstValue(env, ALL_VARIABLES);
+    if (!all || !hasSupportedScheme(all.value))
+        return;
+    for (const [specific, name] of [
+        ["HTTPS_PROXY", "https_proxy"],
+        ["HTTP_PROXY", "http_proxy"],
+    ]) {
+        if (!env[specific]?.trim() && !env[name]?.trim()) {
+            env[specific] = all.value;
+        }
+    }
+}
 function proxySetter() {
     const candidate = http
         .setGlobalProxyFromEnv;
@@ -49,10 +85,17 @@ function proxySetter() {
  * Enables the environment proxy for this process when one is configured.
  * Returns whether the plugin will use it.
  */
-export function applyEnvironmentProxy(log) {
-    const proxy = proxyFromEnvironment();
+export function applyEnvironmentProxy(log, env = process.env) {
+    const proxy = proxyFromEnvironment(env);
     if (!proxy)
         return false;
+    if (!hasSupportedScheme(proxy)) {
+        log.warn("free-pi found a proxy in the environment that this runtime cannot use (only http/https proxies are supported); requests go out directly", { proxy: describeProxy(proxy) });
+        return false;
+    }
+    // Normalize ALL_PROXY first: it stays useful even when this runtime cannot
+    // enable the proxy, because a restart with NODE_USE_ENV_PROXY=1 reads it.
+    applyAllProxyFallback(env);
     const setter = proxySetter();
     if (!setter) {
         log.warn("free-pi found a proxy in the environment but this Node runtime cannot apply it; start OpenCode with NODE_USE_ENV_PROXY=1 or use Node 24.5+ so free-pi requests follow the proxy", { node: process.version, proxy: describeProxy(proxy) });

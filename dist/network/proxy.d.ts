@@ -16,4 +16,4 @@ export declare function proxyFromEnvironment(env?: NodeJS.ProcessEnv): string | 
  * Enables the environment proxy for this process when one is configured.
  * Returns whether the plugin will use it.
  */
-export declare function applyEnvironmentProxy(log: Logger): boolean;
+export declare function applyEnvironmentProxy(log: Logger, env?: NodeJS.ProcessEnv): boolean;
